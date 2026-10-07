@@ -1,13 +1,14 @@
-package org.sba.treeking;
+package com.trekking.app;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 @SpringBootApplication
-public class TreekingApplication {
+public class TrekkingApplication {
 
 	public static void main(String[] args) {
-		SpringApplication.run(TreekingApplication.class, args);
+		SpringApplication.run(TrekkingApplication.class, args);
 	}
 
 }
+
