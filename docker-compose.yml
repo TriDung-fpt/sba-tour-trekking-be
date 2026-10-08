@@ -1,4 +1,17 @@
 services:
+  redis:
+    image: redis:8.2-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
   postgres:
     image: postgres:latest
     container_name: trekking-postgres
@@ -14,5 +27,6 @@ services:
       - ./schema/schema.sql:/docker-entrypoint-initdb.d/01_init_schema.sql:ro
 
 volumes:
+  redis_data:
   postgres_data:
     driver: local
