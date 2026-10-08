@@ -99,7 +99,9 @@ public class AuthController {
     public AccountResponse me(@AuthenticationPrincipal UserPrincipal principal) { return principal.account(); }
 
     @GetMapping("/csrf")
-    public CsrfResponse csrf(CsrfToken token) { return new CsrfResponse(token.getHeaderName(), token.getToken()); }
+    public CsrfResponse csrf(@io.swagger.v3.oas.annotations.Parameter(hidden = true) CsrfToken token) {
+        return new CsrfResponse(token.getHeaderName(), token.getToken());
+    }
 
     public record CsrfResponse(String headerName, String token) {}
 

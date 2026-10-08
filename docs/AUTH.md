@@ -6,10 +6,11 @@ migration is required.
 
 ## Local setup
 
-Use JDK 21 and start the services:
+Set up `.env` as described below, then build and run the backend, PostgreSQL and
+Redis together (Docker is sufficient; a host JDK is not required):
 
 ```powershell
-docker compose up -d
+docker compose up -d --build --wait
 ```
 
 Copy missing settings from `.env.example` into the ignored `.env`. The application
@@ -26,19 +27,26 @@ create an App Password. Never commit these values. Use `AUTH_COOKIE_SECURE=false
 only for local HTTP. Leave `AUTH_ALLOWED_ORIGINS` empty until there is a frontend;
 later set a comma-separated list of exact origins.
 
+For a host JVM instead, start only the dependencies with
+`docker compose up -d postgres redis`, then run this command using JDK 21:
+
 ```powershell
 .\mvnw.cmd spring-boot:run '-Dspring-boot.run.jvmArguments=-Duser.timezone=Asia/Ho_Chi_Minh'
 ```
 
 In IntelliJ, select JDK 21, the project root as the working directory, and set VM
-option `-Duser.timezone=Asia/Ho_Chi_Minh`. Open `/swagger-ui/index.html` to try the API.
+option `-Duser.timezone=Asia/Ho_Chi_Minh`. The Docker backend uses the same timezone.
+Open `http://localhost:8080/swagger-ui/index.html` to try the API. Set `BACKEND_PORT`
+to change its host port. Container database/Redis connections use service names
+and internal ports, independently of host port mappings in `.env`.
 
 ## Request flow
 
 All endpoints below are under `/api/v1/auth`. Before POST requests, call
 `GET /csrf`, keep its `XSRF-TOKEN` cookie, and send the response's `token` in the
-`X-XSRF-TOKEN` header. Keep cookies enabled in Postman. Swagger is configured to
-read the CSRF cookie after you execute `/csrf` once.
+`X-XSRF-TOKEN` header. Keep cookies enabled in Postman. Swagger automatically
+calls `/csrf` before each auth POST and sends the returned token with its cookie;
+you can use Try it out / Execute immediately. `/csrf` requires no input parameters.
 
 | Method/path | JSON body | Success |
 | --- | --- | --- |
@@ -64,6 +72,19 @@ email, 429 login throttled, 503 unavailable dependency. For unknown, ineligible 
 throttled emails, forgot/resend deliberately return the same 202 response.
 If registration returns `MAIL_UNAVAILABLE`, the unverified account has been saved;
 configure/fix SMTP and use resend after the cooldown rather than registering again.
+
+To diagnose SMTP using the running container's JavaMail libraries without sending
+email, run `python tools/check_smtp.py` (requires a host JDK and Maven). Credentials
+are read inside the container and are redacted from diagnostic output. Gmail's
+`535 5.7.8 Username and Password not accepted` means SMTP authentication was
+rejected. Check `MAIL_USERNAME` and create a fresh App Password for that same
+Google account as described in [Google's instructions](https://support.google.com/accounts/answer/185833).
+Update `MAIL_PASSWORD` in `.env`, then apply it with
+`docker compose up -d --force-recreate --wait backend` and repeat the diagnostic.
+After authentication succeeds, call `POST /api/v1/auth/resend-verification` with
+the email from the failed registration (allow 60 seconds after the previous OTP
+request). The endpoint deliberately returns a generic 202 response; confirm that
+the email arrives before using its code in `POST /api/v1/auth/verify-email`.
 
 ## Session and OTP behavior
 
@@ -107,3 +128,30 @@ Testcontainers starts separate PostgreSQL and Redis instances with random ports,
 initializes PostgreSQL from the existing schema, and cleans up the containers.
 Tests do not modify the development database. OTP mail delivery is mocked, so
 the suite sends no real email and needs no Gmail credentials.
+
+### Live Docker API checks
+
+Use the local Mailpit override to test all ten auth endpoints over HTTP, including
+email verification, refresh rotation/replay, logout, password reset, validation,
+CSRF and CORS. This override captures SMTP locally instead of sending real email:
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.api-test.yml up -d --build --wait
+python tools/test_api.py
+```
+
+Mailpit's inbox is at `http://localhost:8025`. The script needs Python 3, uses no
+third-party packages, writes `target/api-test-report.json`, and creates one unique
+disposable `api-test-...@example.invalid` account in the development database.
+The override enables HTTP cookies and the local origin `http://localhost:5173`.
+To return to the SMTP settings in `.env`, run `docker compose up -d --wait backend`.
+
+### Swagger browser checks
+
+`tools/test_swagger.js` is a Playwright MCP `browser_run_code_unsafe` filename
+entry point. Open Swagger's login operation, select Try it out, and fill its JSON
+body with a verified disposable test account before running the file. The suite
+clears browser cookies and executes 20 checks through Swagger's buttons across
+all ten auth endpoints, including the first POST without a manual CSRF handshake.
+Credentials stay in memory. OTP endpoints use unknown accounts or invalid input;
+these browser checks do not verify delivery through the SMTP credentials in `.env`.

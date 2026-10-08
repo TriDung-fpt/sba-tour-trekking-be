@@ -161,6 +161,12 @@ class AuthIntegrationTests extends AuthTestInfrastructure {
     }
 
     @Test
+    void csrfHandshakeIsDocumentedWithoutClientSuppliedToken() throws Exception {
+        mvc.perform(get("/v3/api-docs")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.paths['/api/v1/auth/csrf'].get.parameters").doesNotExist());
+    }
+
+    @Test
     void csrfHandshakeAndCors() throws Exception {
         mvc.perform(post("/api/v1/auth/login").contentType("application/json")
                         .content(json.writeValueAsString(Map.of("email", EMAIL, "password", PASSWORD))))
