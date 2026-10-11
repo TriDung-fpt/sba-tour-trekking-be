@@ -13,7 +13,7 @@ import com.trekking.app.features.auth.repository.RedisAuthStore;
 import java.time.Clock;
 import java.time.OffsetDateTime;
 
-import com.trekking.app.features.otp.enums.OtpPurpose;
+import com.trekking.app.features.auth.enums.OtpPurpose;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;

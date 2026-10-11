@@ -1,7 +1,7 @@
 package com.trekking.app.features.auth.service;
 
 import com.trekking.app.features.auth.dto.request.AuthRequests;
-import com.trekking.app.features.otp.enums.OtpPurpose;
+import com.trekking.app.features.auth.enums.OtpPurpose;
 import com.trekking.app.features.auth.service.IssuedTokens;
 
 public interface AuthService {

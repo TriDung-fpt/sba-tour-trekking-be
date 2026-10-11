@@ -10,7 +10,7 @@ import com.trekking.app.features.auth.dto.response.CsrfResponse;
 import com.trekking.app.features.auth.dto.response.MessageResponse;
 import com.trekking.app.features.auth.service.AuthService;
 import com.trekking.app.features.auth.service.IssuedTokens;
-import com.trekking.app.features.otp.enums.OtpPurpose;
+import com.trekking.app.features.auth.enums.OtpPurpose;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;

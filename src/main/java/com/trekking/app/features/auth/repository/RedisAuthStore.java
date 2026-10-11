@@ -4,7 +4,7 @@ import com.trekking.app.core.config.AuthProperties;
 import com.trekking.app.core.exception.AuthException;
 import com.trekking.app.core.security.AuthCrypto;
 import com.trekking.app.features.auth.service.AuthSession;
-import com.trekking.app.features.otp.enums.OtpPurpose;
+import com.trekking.app.features.auth.enums.OtpPurpose;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
