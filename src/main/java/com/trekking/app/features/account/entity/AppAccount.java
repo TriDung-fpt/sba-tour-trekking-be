@@ -25,6 +25,9 @@ public class AppAccount extends TimestampedEntity {
     @Column(name = "email", nullable = false, length = 254)
     private String email;
 
+    @Column(name = "google_subject", length = 255)
+    private String googleSubject;
+
     @Column(name = "password_hash", nullable = false, columnDefinition = "text")
     private String passwordHash;
 

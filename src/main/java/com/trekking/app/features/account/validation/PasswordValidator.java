@@ -1,4 +1,4 @@
-package com.trekking.app.features.account.dto.request;
+package com.trekking.app.features.account.validation;
 
 import jakarta.validation.ConstraintValidator;
 import jakarta.validation.ConstraintValidatorContext;

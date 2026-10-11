@@ -1,7 +1,7 @@
 package com.trekking.app.core.security;
 
 import com.trekking.app.core.exception.AuthException;
-import com.trekking.app.features.account.repository.RedisAuthStore;
+import com.trekking.app.features.account.validation.AuthValidation;
 import com.trekking.app.features.account.service.account.SessionAccounts;
 import java.util.Locale;
 import org.springframework.core.convert.converter.Converter;
@@ -17,18 +17,18 @@ import org.springframework.stereotype.Component;
 
 @Component
 public class SessionJwtAuthenticationConverter implements Converter<Jwt, AbstractAuthenticationToken> {
-    private final RedisAuthStore store;
+    private final AuthValidation validation;
     private final SessionAccounts accounts;
 
-    public SessionJwtAuthenticationConverter(RedisAuthStore store, SessionAccounts accounts) {
-        this.store = store;
+    public SessionJwtAuthenticationConverter(AuthValidation validation, SessionAccounts accounts) {
+        this.validation = validation;
         this.accounts = accounts;
     }
 
     @Override
     public AbstractAuthenticationToken convert(Jwt jwt) {
         try {
-            var session = store.getSession(jwt.getClaimAsString("sid"));
+            var session = validation.getSession(jwt.getClaimAsString("sid"));
             if (!Long.toString(session.accountId()).equals(jwt.getSubject())) throw AuthException.invalidSession();
             var response = accounts.response(accounts.validate(session));
             var authorities = response.roles().stream()

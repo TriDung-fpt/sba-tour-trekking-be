@@ -47,6 +47,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql
       - ./schema/schema.sql:/docker-entrypoint-initdb.d/01_init_schema.sql:ro
+      - ./schema/migrations/001_add_google_subject.sql:/docker-entrypoint-initdb.d/02_google_auth.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 5s

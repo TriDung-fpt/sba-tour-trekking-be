@@ -77,6 +77,12 @@ public class AuthController {
         return tokens(response, service.login(request, http.getRemoteAddr()));
     }
 
+    @PostMapping("/google")
+    public AuthResponse google(@Valid @RequestBody AuthRequests.GoogleLogin request, HttpServletRequest http,
+                               HttpServletResponse response) {
+        return tokens(response, service.loginGoogle(request, http.getRemoteAddr()));
+    }
+
     @PostMapping("/refresh")
     public AuthResponse refresh(@CookieValue(name = REFRESH_COOKIE, required = false) String refresh,
                                 HttpServletResponse response) {
@@ -110,7 +116,7 @@ public class AuthController {
         response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
         return tokens.response();
     }
-
+    // coi lai
     private void cookie(HttpServletResponse response, String value, Duration ttl) {
         response.addHeader(HttpHeaders.SET_COOKIE, ResponseCookie.from(REFRESH_COOKIE, value).httpOnly(true)
                 .secure(properties.cookieSecure()).sameSite("Lax").path("/api/v1/auth")

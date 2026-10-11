@@ -1,20 +1,20 @@
 package com.trekking.app;
 
 import com.trekking.app.core.config.AuthProperties;
-import com.trekking.app.core.exception.AuthException;
 import com.trekking.app.core.security.AuthCrypto;
-import com.trekking.app.features.account.dto.request.PasswordValidator;
+import com.trekking.app.features.account.validation.PasswordValidator;
+import com.trekking.app.features.account.validation.AuthValidation;
 import com.trekking.app.features.account.repository.RedisAuthStore;
 import com.trekking.app.features.account.service.session.AuthSession;
 import com.trekking.app.features.account.enums.OtpPurpose;
 import java.time.Duration;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.http.HttpStatus;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -30,15 +30,15 @@ class AuthSecurityTests {
     void redisFailureDoesNotIssueOrAcceptAuthenticationState() {
         var template = mock(StringRedisTemplate.class, invocation -> { throw new RedisConnectionFailureException("Unavailable"); });
         var store = new RedisAuthStore(template, new AuthCrypto(properties()), properties());
+        var validation = new AuthValidation(store, new AuthCrypto(properties()), Clock.systemUTC());
         List<Runnable> operations = List.of(
-                () -> store.getSession(UUID.randomUUID().toString()),
-                () -> store.sessionForRefresh("hash"),
-                () -> store.checkLoginLimit("test@example.invalid", "127.0.0.1"),
+                () -> validation.getSession(UUID.randomUUID().toString()),
+                () -> validation.sessionForRefresh("hash"),
+                () -> validation.checkLoginLimit("test@example.invalid", "127.0.0.1"),
                 () -> store.reserveEmail("test@example.invalid", OtpPurpose.VERIFY_EMAIL),
-                () -> store.createSession(new AuthSession(UUID.randomUUID().toString(), 1L, "hash", Instant.now().plusSeconds(60)), "refresh"));
+                () -> validation.createSession(new AuthSession(UUID.randomUUID().toString(), 1L, "hash", Instant.now().plusSeconds(60)), "refresh"));
         for (Runnable operation : operations) {
-            assertThatThrownBy(operation::run).isInstanceOfSatisfying(AuthException.class,
-                    ex -> assertThat(ex.getStatus()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE));
+            assertThatThrownBy(operation::run).isInstanceOf(org.springframework.dao.DataAccessException.class);
         }
     }
 

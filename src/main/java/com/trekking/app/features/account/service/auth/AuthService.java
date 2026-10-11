@@ -10,6 +10,7 @@ public interface AuthService {
     void requestOtp(String email, OtpPurpose purpose);
     void resetPassword(AuthRequests.ResetPassword request);
     IssuedTokens login(AuthRequests.Login request, String ip);
+    IssuedTokens loginGoogle(AuthRequests.GoogleLogin request, String ip);
     IssuedTokens refresh(String token);
     void logout(String token);
 }

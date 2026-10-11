@@ -5,6 +5,7 @@ import com.trekking.app.core.exception.AuthException;
 import com.trekking.app.core.security.AuthCrypto;
 import com.trekking.app.features.account.dto.request.AuthRequests;
 import com.trekking.app.features.account.repository.RedisAuthStore;
+import com.trekking.app.features.account.validation.AuthValidation;
 import com.trekking.app.features.account.service.auth.AuthService;
 import com.trekking.app.features.account.service.otp.OtpMailSender;
 import com.trekking.app.features.account.enums.OtpPurpose;
@@ -48,6 +49,7 @@ class AuthIntegrationTests extends AuthTestInfrastructure {
     @Autowired
     AuthService service;
     @Autowired RedisAuthStore store;
+    @Autowired AuthValidation validation;
     @Autowired AuthCrypto crypto;
     @Autowired AuthProperties properties;
     @Autowired JwtEncoder encoder;
@@ -278,7 +280,7 @@ class AuthIntegrationTests extends AuthTestInfrastructure {
         String context = (String) redis.opsForHash().get(key, "context");
         store.putOtp(EMAIL, OtpPurpose.VERIFY_EMAIL, newHash, context);
         postJson("/verify-email", Map.of("email", EMAIL, "otp", old)).andExpect(status().isBadRequest());
-        store.consumeOtp(EMAIL, OtpPurpose.VERIFY_EMAIL, newHash, context);
+        validation.consumeOtp(EMAIL, OtpPurpose.VERIFY_EMAIL, newHash, context);
         assertThat(redis.hasKey(key)).isFalse();
     }
 
