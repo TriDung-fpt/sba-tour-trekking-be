@@ -1,19 +1,19 @@
-package com.trekking.app.features.account.service.account;
+package com.trekking.app.features.auth.service.impl;
 
 import com.trekking.app.core.exception.AuthException;
 import com.trekking.app.core.security.AuthCrypto;
-import com.trekking.app.features.account.dto.request.AuthRequests;
+import com.trekking.app.features.auth.dto.request.AuthRequests;
 import com.trekking.app.features.account.entity.AccountRole;
 import com.trekking.app.features.account.entity.AppAccount;
 import com.trekking.app.features.account.enums.AccountStatus;
 import com.trekking.app.features.account.enums.RoleType;
 import com.trekking.app.features.account.repository.AccountRoleRepository;
 import com.trekking.app.features.account.repository.AppAccountRepository;
-import com.trekking.app.features.account.repository.RedisAuthStore;
+import com.trekking.app.features.auth.repository.RedisAuthStore;
 import java.time.Clock;
 import java.time.OffsetDateTime;
 
-import com.trekking.app.features.account.enums.OtpPurpose;
+import com.trekking.app.features.otp.enums.OtpPurpose;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;

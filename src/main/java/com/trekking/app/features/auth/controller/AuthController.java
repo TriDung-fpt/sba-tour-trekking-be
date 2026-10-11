@@ -1,15 +1,16 @@
-package com.trekking.app.features.account.controller;
+package com.trekking.app.features.auth.controller;
 
 import com.trekking.app.core.config.AuthProperties;
 import com.trekking.app.core.exception.AuthException;
 import com.trekking.app.core.security.UserPrincipal;
-import com.trekking.app.features.account.dto.request.AuthRequests;
+import com.trekking.app.features.auth.dto.request.AuthRequests;
 import com.trekking.app.features.account.dto.response.AccountResponse;
-import com.trekking.app.features.account.dto.response.AuthResponse;
-import com.trekking.app.features.account.dto.response.MessageResponse;
-import com.trekking.app.features.account.service.auth.AuthService;
-import com.trekking.app.features.account.service.session.IssuedTokens;
-import com.trekking.app.features.account.enums.OtpPurpose;
+import com.trekking.app.features.auth.dto.response.AuthResponse;
+import com.trekking.app.features.auth.dto.response.CsrfResponse;
+import com.trekking.app.features.auth.dto.response.MessageResponse;
+import com.trekking.app.features.auth.service.AuthService;
+import com.trekking.app.features.auth.service.IssuedTokens;
+import com.trekking.app.features.otp.enums.OtpPurpose;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
@@ -102,8 +103,6 @@ public class AuthController {
     public CsrfResponse csrf(@io.swagger.v3.oas.annotations.Parameter(hidden = true) CsrfToken token) {
         return new CsrfResponse(token.getHeaderName(), token.getToken());
     }
-
-    public record CsrfResponse(String headerName, String token) {}
 
     private AuthResponse tokens(HttpServletResponse response, IssuedTokens tokens) {
         cookie(response, tokens.refreshToken(), Duration.between(clock.instant(), tokens.sessionExpiresAt()));

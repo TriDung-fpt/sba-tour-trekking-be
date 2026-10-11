@@ -1,4 +1,4 @@
-package com.trekking.app.features.account.service.session;
+package com.trekking.app.features.auth.service;
 
 import java.time.Instant;
 
