@@ -14,8 +14,6 @@ import java.time.Clock;
 import java.time.Duration;
 import java.util.UUID;
 
-import com.trekking.app.features.auth.service.impl.AccountTransactions;
-import com.trekking.app.features.auth.service.impl.SessionAccounts;
 import com.trekking.app.features.auth.service.AuthService;
 import com.trekking.app.features.auth.service.OtpMailSender;
 import com.trekking.app.features.auth.enums.OtpPurpose;
