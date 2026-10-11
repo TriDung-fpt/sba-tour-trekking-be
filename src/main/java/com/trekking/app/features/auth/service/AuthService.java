@@ -2,6 +2,7 @@ package com.trekking.app.features.auth.service;
 
 import com.trekking.app.features.auth.dto.request.AuthRequests;
 import com.trekking.app.features.auth.enums.OtpPurpose;
+import com.trekking.app.features.auth.model.IssuedTokens;
 
 public interface AuthService {
     void register(AuthRequests.Register request);

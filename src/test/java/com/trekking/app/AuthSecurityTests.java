@@ -5,7 +5,7 @@ import com.trekking.app.core.exception.AuthException;
 import com.trekking.app.core.security.AuthCrypto;
 import com.trekking.app.features.auth.dto.request.PasswordValidator;
 import com.trekking.app.features.auth.repository.RedisAuthStore;
-import com.trekking.app.features.auth.service.AuthSession;
+import com.trekking.app.features.auth.model.AuthSession;
 import com.trekking.app.features.auth.enums.OtpPurpose;
 import java.time.Duration;
 import java.time.Instant;

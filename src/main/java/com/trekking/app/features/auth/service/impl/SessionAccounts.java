@@ -10,7 +10,7 @@ import com.trekking.app.features.account.repository.AppAccountRepository;
 import com.trekking.app.features.auth.repository.RedisAuthStore;
 import java.time.Clock;
 
-import com.trekking.app.features.auth.service.AuthSession;
+import com.trekking.app.features.auth.model.AuthSession;
 import org.springframework.stereotype.Service;
 
 @Service
