@@ -1,25 +1,24 @@
-package com.trekking.app.features.account.service.auth;
+package com.trekking.app.features.auth.service.impl;
 
 import com.trekking.app.core.config.AuthProperties;
 import com.trekking.app.core.exception.AuthException;
 import com.trekking.app.core.security.AuthCrypto;
 import com.trekking.app.core.security.JwtService;
-import com.trekking.app.features.account.dto.request.AuthRequests;
-import com.trekking.app.features.account.dto.response.AuthResponse;
+import com.trekking.app.features.auth.dto.request.AuthRequests;
+import com.trekking.app.features.auth.dto.response.AuthResponse;
 import com.trekking.app.features.account.entity.AppAccount;
 import com.trekking.app.features.account.enums.AccountStatus;
 import com.trekking.app.features.account.repository.AppAccountRepository;
-import com.trekking.app.features.account.repository.RedisAuthStore;
+import com.trekking.app.features.auth.repository.RedisAuthStore;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.UUID;
 
-import com.trekking.app.features.account.service.account.AccountTransactions;
-import com.trekking.app.features.account.service.account.SessionAccounts;
-import com.trekking.app.features.account.service.otp.OtpMailSender;
-import com.trekking.app.features.account.enums.OtpPurpose;
-import com.trekking.app.features.account.service.session.AuthSession;
-import com.trekking.app.features.account.service.session.IssuedTokens;
+import com.trekking.app.features.auth.service.AuthService;
+import com.trekking.app.features.auth.service.OtpMailSender;
+import com.trekking.app.features.auth.enums.OtpPurpose;
+import com.trekking.app.features.auth.model.AuthSession;
+import com.trekking.app.features.auth.model.IssuedTokens;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;

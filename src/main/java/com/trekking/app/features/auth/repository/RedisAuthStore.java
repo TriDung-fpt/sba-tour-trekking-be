@@ -1,10 +1,10 @@
-package com.trekking.app.features.account.repository;
+package com.trekking.app.features.auth.repository;
 
 import com.trekking.app.core.config.AuthProperties;
 import com.trekking.app.core.exception.AuthException;
 import com.trekking.app.core.security.AuthCrypto;
-import com.trekking.app.features.account.service.session.AuthSession;
-import com.trekking.app.features.account.enums.OtpPurpose;
+import com.trekking.app.features.auth.model.AuthSession;
+import com.trekking.app.features.auth.enums.OtpPurpose;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;

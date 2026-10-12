@@ -1,4 +1,4 @@
-package com.trekking.app.features.account.service.account;
+package com.trekking.app.features.auth.service.impl;
 
 import com.trekking.app.core.exception.AuthException;
 import com.trekking.app.core.security.AuthCrypto;
@@ -7,10 +7,10 @@ import com.trekking.app.features.account.entity.AppAccount;
 import com.trekking.app.features.account.enums.AccountStatus;
 import com.trekking.app.features.account.repository.AccountRoleRepository;
 import com.trekking.app.features.account.repository.AppAccountRepository;
-import com.trekking.app.features.account.repository.RedisAuthStore;
+import com.trekking.app.features.auth.repository.RedisAuthStore;
 import java.time.Clock;
 
-import com.trekking.app.features.account.service.session.AuthSession;
+import com.trekking.app.features.auth.model.AuthSession;
 import org.springframework.stereotype.Service;
 
 @Service

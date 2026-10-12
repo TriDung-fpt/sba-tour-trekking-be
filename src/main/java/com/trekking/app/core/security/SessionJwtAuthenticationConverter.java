@@ -1,8 +1,8 @@
 package com.trekking.app.core.security;
 
 import com.trekking.app.core.exception.AuthException;
-import com.trekking.app.features.account.repository.RedisAuthStore;
-import com.trekking.app.features.account.service.account.SessionAccounts;
+import com.trekking.app.features.auth.repository.RedisAuthStore;
+import com.trekking.app.features.auth.service.impl.SessionAccounts;
 import java.util.Locale;
 import org.springframework.core.convert.converter.Converter;
 import org.springframework.dao.DataAccessException;

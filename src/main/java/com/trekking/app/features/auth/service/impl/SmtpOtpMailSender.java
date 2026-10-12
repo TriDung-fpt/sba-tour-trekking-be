@@ -1,7 +1,8 @@
-package com.trekking.app.features.account.service.otp;
+package com.trekking.app.features.auth.service.impl;
 
 import com.trekking.app.core.config.AuthProperties;
-import com.trekking.app.features.account.enums.OtpPurpose;
+import com.trekking.app.features.auth.enums.OtpPurpose;
+import com.trekking.app.features.auth.service.OtpMailSender;
 import org.springframework.mail.MailSendException;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
