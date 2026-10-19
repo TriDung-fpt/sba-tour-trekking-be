@@ -3,12 +3,12 @@ package com.trekking.app;
 import com.trekking.app.core.config.AuthProperties;
 import com.trekking.app.core.exception.AuthException;
 import com.trekking.app.core.security.AuthCrypto;
-import com.trekking.app.features.account.dto.request.AuthRequests;
-import com.trekking.app.features.account.repository.RedisAuthStore;
-import com.trekking.app.features.account.validation.AuthValidation;
-import com.trekking.app.features.account.service.auth.AuthService;
-import com.trekking.app.features.account.service.otp.OtpMailSender;
-import com.trekking.app.features.account.enums.OtpPurpose;
+import com.trekking.app.features.auth.dto.request.AuthRequests;
+import com.trekking.app.features.auth.validation.AuthValidation;
+import com.trekking.app.features.auth.repository.RedisAuthStore;
+import com.trekking.app.features.auth.service.AuthService;
+import com.trekking.app.features.auth.service.OtpMailSender;
+import com.trekking.app.features.auth.enums.OtpPurpose;
 import jakarta.servlet.http.Cookie;
 import java.time.Duration;
 import java.time.Instant;
@@ -125,6 +125,17 @@ class AuthIntegrationTests extends AuthTestInfrastructure {
                 .andExpect(status().isNoContent()).andExpect(header().string("Set-Cookie", org.hamcrest.Matchers.containsString("Max-Age=0")));
         mvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer " + access(next)))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void verifiedLegacyAccountCanCompleteRequiredPasswordReset() throws Exception {
+        registerVerified(true);
+        jdbc.update("update trekking.app_accounts set must_change_password=true where email=?", EMAIL);
+        postJson("/login", Map.of("email", EMAIL, "password", PASSWORD)).andExpect(status().isForbidden());
+        postJson("/forgot-password", Map.of("email", EMAIL)).andExpect(status().isAccepted());
+        postJson("/reset-password", Map.of("email", EMAIL, "otp", code(EMAIL, OtpPurpose.RESET_PASSWORD),
+                "newPassword", "NewPassword123!")).andExpect(status().isOk());
+        postJson("/login", Map.of("email", EMAIL, "password", "NewPassword123!")).andExpect(status().isOk());
     }
 
     @Test

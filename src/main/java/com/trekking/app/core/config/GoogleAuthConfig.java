@@ -1,7 +1,7 @@
 package com.trekking.app.core.config;
 
-import com.trekking.app.features.account.service.google.GoogleTokenVerifier;
-import com.trekking.app.features.account.service.google.GoogleTokenVerifierImpl;
+import com.trekking.app.features.auth.service.GoogleTokenVerifier;
+import com.trekking.app.features.auth.service.impl.GoogleTokenVerifierImpl;
 import jakarta.validation.Validator;
 import java.time.Clock;
 import java.time.Duration;

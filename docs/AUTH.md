@@ -1,8 +1,28 @@
 # Authentication
 
 Auth uses the existing account entities and PostgreSQL tables. OTPs, refresh
-token hashes, rate limits and session metadata are stored in Redis. No database
-migration is required.
+token hashes, rate limits and session metadata are stored in Redis. Google sign-in
+uses a unique, nullable `app_accounts.google_subject` to persist Google's stable
+`sub` identifier.
+
+## Database upgrade
+
+For an existing database, apply `schema/migrations/001_add_google_subject.sql`
+then `schema/migrations/002_add_account_session_version.sql` and
+`schema/migrations/003_add_cooperation_policy_terms.sql` once before starting
+this backend version. For example, with the Compose
+database (replace the username and database with your settings):
+
+```powershell
+Get-Content schema/migrations/001_add_google_subject.sql | docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U your_database_user -d trekking_db
+Get-Content schema/migrations/002_add_account_session_version.sql | docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U your_database_user -d trekking_db
+Get-Content schema/migrations/003_add_cooperation_policy_terms.sql | docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U your_database_user -d trekking_db
+```
+
+The migration preserves existing accounts, passwords, roles and sessions.
+Fresh Compose volumes and Testcontainers load the baseline followed by these
+migrations. Restarting an existing volume does not execute init scripts;
+apply the upgrade explicitly. The deployed baseline is kept unchanged.
 
 ## Local setup
 
@@ -54,10 +74,12 @@ you can use Try it out / Execute immediately. `/csrf` requires no input paramete
 | POST /verify-email | `{"email":"you@example.com","otp":"123456"}` | 200 |
 | POST /resend-verification | `{"email":"you@example.com"}` | 202, generic message |
 | POST /login | `{"email":"you@example.com","password":"StrongPassword123!"}` | 200; access JWT and refresh cookie |
+| POST /google | `{"idToken":"<Google ID token>"}` | 200; app access JWT and refresh cookie |
 | POST /refresh | No body; refresh cookie | 200; new access JWT and refresh cookie |
 | POST /logout | No body; refresh cookie | 204; revoke session and clear cookie |
 | POST /forgot-password | `{"email":"you@example.com"}` | 202, generic message |
 | POST /reset-password | `{"email":"you@example.com","otp":"123456","newPassword":"NewPassword123!"}` | 200; all old sessions invalid |
+| POST /activate-account | `{"email":"guide@example.com","otp":"123456","newPassword":"NewPassword123!"}` | 200; verify invitation and set initial password; login separately |
 | GET /me | No body; `Authorization: Bearer <accessToken>` | 200; account and current roles |
 
 Access responses contain `accessToken`, `tokenType`, `expiresIn` (seconds) and
@@ -65,6 +87,64 @@ Access responses contain `accessToken`, `tokenType`, `expiresIn` (seconds) and
 Bearer header to public endpoints or `/refresh`; use only cookies and CSRF there.
 Clients must serialize refresh calls: simultaneous use of the same refresh
 token is treated as replay and revokes the session, requiring login again.
+The frontend now coordinates cookie-changing operations across same-origin tabs
+with Web Locks; automatic restore/refresh requires that browser capability on
+HTTPS or localhost. See the frontend `docs/MODULE_1.md` for its fallback behavior.
+
+Guide/staff invitations use a separate activation purpose. Before activation,
+unverified invitation accounts cannot use verify-email or reset-password to
+bypass the initial-password flow. Existing verified accounts marked for a password
+change can still complete the normal reset flow. Provisioning, agreement APIs,
+migration 003 and release checks are described in
+[Module 1 implementation](MODULE_1_IMPLEMENTATION.md).
+
+## Google sign-in
+
+Set `GOOGLE_CLIENT_IDS` to the comma-separated OAuth client IDs of your frontend
+applications. Empty means Google sign-in is disabled (`503 GOOGLE_AUTH_UNAVAILABLE`),
+while email/password authentication keeps working. The frontend obtains the
+Google Identity Services `credential` and sends it as `idToken` to `/google`
+using the same cookies and CSRF handshake as `/login`. This endpoint accepts
+JSON from the frontend; it is not a Google redirect callback or an access-token
+exchange. No Google client secret is required for ID-token verification.
+
+The backend verifies RS256 signatures with Google's public keys, expiry, issuer,
+audience, authorized party when supplied, subject and verified email before
+opening a database transaction. Invalid tokens return `401 INVALID_GOOGLE_TOKEN`.
+Google tokens are used only to sign in; protected endpoints accept the app's
+JWT and require its Redis session. Token verification needs outbound HTTPS to
+Google's public-key endpoint; a key-fetch failure returns 503.
+
+Returning Google users are looked up by `sub`, so an email change does not create
+a new account or alter their local email/profile/roles. A new Google identity
+creates a verified customer account with a random BCrypt credential that is
+never returned. It can also link to a locally verified, active password account
+with the same email, preserving its password and roles. Unverified, disabled,
+blocked or password-reset-required accounts cannot bypass those checks. An
+email bound to another Google subject returns `409 GOOGLE_ACCOUNT_CONFLICT`.
+
+Automatic creation/linking requires a Gmail address or a Google Workspace
+identity with a signed `hd` claim. Google may report `email_verified=true` for
+third-party emails whose ownership has changed; these unbound identities return
+`403 GOOGLE_EMAIL_VERIFICATION_REQUIRED` and require a separate ownership/linking
+flow. That additional flow is not exposed by this API. See
+[Google's server-side verification guidance](https://developers.google.com/identity/gsi/web/guides/verify-google-id-token).
+
+Google sessions use the same refresh rotation, logout, account status checks and
+password-reset revocation as password sessions. A Google-created customer can
+use `/forgot-password` and `/reset-password` to set a local password.
+
+## Code boundaries
+
+`JwtService` is the token-issuance interface; `JwtServiceImpl` implements the
+existing app JWT format. `GoogleTokenVerifier` is a separate interface for
+external identity verification. `features.auth.validation` owns input
+normalization, password constraints, OTP/session eligibility and login limits.
+Repositories perform persistence and atomic Redis operations, returning results
+for the validation layer to interpret. Redis infrastructure failures propagate
+as data-access errors and map to 503 at the API/security boundary. The normalized
+email lookup in `AppAccountRepository` supports legacy mixed-case rows; it does
+not perform request validation. Database constraints remain in place for integrity.
 
 Errors contain `code`, `message`, and `fieldErrors`. Common statuses: 400 invalid
 input/OTP, 401 wrong credentials or token, 403 account eligibility/CSRF, 409 duplicate
@@ -73,14 +153,14 @@ throttled emails, forgot/resend deliberately return the same 202 response.
 If registration returns `MAIL_UNAVAILABLE`, the unverified account has been saved;
 configure/fix SMTP and use resend after the cooldown rather than registering again.
 
-To diagnose SMTP using the running container's JavaMail libraries without sending
-email, run `python tools/check_smtp.py` (requires a host JDK and Maven). Credentials
-are read inside the container and are redacted from diagnostic output. Gmail's
+The previously documented `tools/check_smtp.py` is absent from this repository.
+For SMTP failures, inspect the configured mail provider and backend diagnostics
+without exposing credentials. Gmail's
 `535 5.7.8 Username and Password not accepted` means SMTP authentication was
 rejected. Check `MAIL_USERNAME` and create a fresh App Password for that same
 Google account as described in [Google's instructions](https://support.google.com/accounts/answer/185833).
 Update `MAIL_PASSWORD` in `.env`, then apply it with
-`docker compose up -d --force-recreate --wait backend` and repeat the diagnostic.
+`docker compose up -d --force-recreate --wait backend`.
 After authentication succeeds, call `POST /api/v1/auth/resend-verification` with
 the email from the failed registration (allow 60 seconds after the previous OTP
 request). The endpoint deliberately returns a generic 202 response; confirm that
@@ -106,6 +186,9 @@ the email arrives before using its code in `POST /api/v1/auth/verify-email`.
   authenticated request/refresh. Password reset invalidates all old sessions
   when the PostgreSQL transaction commits, without a cross-database transaction.
   Old Redis keys disappear at their original TTL; they cannot authenticate.
+- Account blocking increments a PostgreSQL session version in the same transaction
+  as status and audit. Old access/refresh sessions remain invalid after unblock.
+  See [Module 1 authorization](MODULE_1_AUTHORIZATION.md) for the new APIs and guards.
 - Redis scripts atomically consume OTPs and rotate tokens. Invalid OTP attempt
   counters persist even when the surrounding database transaction rolls back.
   If a database update fails after consuming a code, request another code.
@@ -129,29 +212,18 @@ initializes PostgreSQL from the existing schema, and cleans up the containers.
 Tests do not modify the development database. OTP mail delivery is mocked, so
 the suite sends no real email and needs no Gmail credentials.
 
-### Live Docker API checks
+The suite also checks Google verification with real RSA signatures and a local
+test key/JWKS response, and exercises Google account/session behavior with a
+mocked `GoogleTokenVerifier`. The migration test creates a separate temporary
+database on the Testcontainers PostgreSQL server and upgrades the unchanged
+baseline with synthetic legacy accounts. These checks need no real Google
+credential or access to Google's network; configure client IDs and use a real
+frontend credential for a live Google sign-in check.
 
-Use the local Mailpit override to test all ten auth endpoints over HTTP, including
-email verification, refresh rotation/replay, logout, password reset, validation,
-CSRF and CORS. This override captures SMTP locally instead of sending real email:
+### Manual HTTP and Swagger checks
 
-```powershell
-docker compose -f docker-compose.yml -f docker-compose.api-test.yml up -d --build --wait
-python tools/test_api.py
-```
-
-Mailpit's inbox is at `http://localhost:8025`. The script needs Python 3, uses no
-third-party packages, writes `target/api-test-report.json`, and creates one unique
-disposable `api-test-...@example.invalid` account in the development database.
-The override enables HTTP cookies and the local origin `http://localhost:5173`.
-To return to the SMTP settings in `.env`, run `docker compose up -d --wait backend`.
-
-### Swagger browser checks
-
-`tools/test_swagger.js` is a Playwright MCP `browser_run_code_unsafe` filename
-entry point. Open Swagger's login operation, select Try it out, and fill its JSON
-body with a verified disposable test account before running the file. The suite
-clears browser cookies and executes 20 checks through Swagger's buttons across
-all ten auth endpoints, including the first POST without a manual CSRF handshake.
-Credentials stay in memory. OTP endpoints use unknown accounts or invalid input;
-these browser checks do not verify delivery through the SMTP credentials in `.env`.
+`docker-compose.api-test.yml`, `tools/test_api.py` and `tools/test_swagger.js`
+are absent from this repository. Use the Maven suite above for automated
+verification. Manual Swagger checks follow the documented CSRF/Bearer flow
+with a disposable verified test account. Live SMTP and Google sign-in need
+configured test credentials; they are not covered by mocked mail/token tests.

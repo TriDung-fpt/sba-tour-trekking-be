@@ -38,3 +38,6 @@ build/
 
 # Browser test artifacts
 .playwright-mcp/
+.frontend-work/
+data/company-licenses/
+.module-one-verify.log

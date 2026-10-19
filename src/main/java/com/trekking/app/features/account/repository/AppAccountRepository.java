@@ -9,6 +9,10 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface AppAccountRepository extends JpaRepository<AppAccount, Long> {
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select a from AppAccount a where a.id = :id")
+    Optional<AppAccount> lockById(@Param("id") Long id);
+
     // Normalize persisted legacy email values during lookup; request validation belongs to the validation layer.
     @Query("select a from AppAccount a where lower(trim(a.email)) = :email")
     Optional<AppAccount> findByEmail(@Param("email") String email);

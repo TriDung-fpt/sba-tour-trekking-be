@@ -19,6 +19,10 @@ public abstract class AuthTestInfrastructure {
             .withCopyFileToContainer(MountableFile.forHostPath(Path.of("schema/schema.sql")), "/docker-entrypoint-initdb.d/schema.sql")
             .withCopyFileToContainer(MountableFile.forHostPath(Path.of("schema/migrations/001_add_google_subject.sql")),
                     "/docker-entrypoint-initdb.d/zz_google_auth.sql")
+            .withCopyFileToContainer(MountableFile.forHostPath(Path.of("schema/migrations/002_add_account_session_version.sql")),
+                    "/docker-entrypoint-initdb.d/zzz_account_session_version.sql")
+            .withCopyFileToContainer(MountableFile.forHostPath(Path.of("schema/migrations/003_add_cooperation_policy_terms.sql")),
+                    "/docker-entrypoint-initdb.d/zzzz_policy_agreement_terms.sql")
             .waitingFor(Wait.forLogMessage(".*database system is ready to accept connections.*\\n", 2))
             .withStartupTimeout(Duration.ofMinutes(2));
     static final GenericContainer<?> REDIS = new GenericContainer<>(DockerImageName.parse("redis:8.2-alpine"))

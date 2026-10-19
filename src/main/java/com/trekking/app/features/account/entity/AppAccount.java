@@ -31,6 +31,9 @@ public class AppAccount extends TimestampedEntity {
     @Column(name = "password_hash", nullable = false, columnDefinition = "text")
     private String passwordHash;
 
+    @Column(name = "session_version", nullable = false)
+    private long sessionVersion = 0;
+
     @Column(name = "full_name", nullable = false, length = 200)
     private String fullName;
 

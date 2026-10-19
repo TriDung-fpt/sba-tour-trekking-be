@@ -1,0 +1,6 @@
+package com.trekking.app.core.security.authorization;
+
+public enum Permission {
+    ACCOUNT_READ, ACCOUNT_BLOCK, ACCOUNT_ROLES_WRITE, COMPANY_REVIEW, POLICY_MANAGE,
+    COMPANY_READ, COMPANY_MANAGE, COMPANY_OPERATE, GUIDE_SCHEDULE_READ
+}

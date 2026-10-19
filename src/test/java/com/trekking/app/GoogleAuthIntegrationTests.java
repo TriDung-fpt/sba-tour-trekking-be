@@ -1,12 +1,12 @@
 package com.trekking.app;
 
 import com.trekking.app.core.exception.AuthException;
-import com.trekking.app.features.account.dto.request.AuthRequests;
-import com.trekking.app.features.account.enums.OtpPurpose;
-import com.trekking.app.features.account.service.auth.AuthService;
-import com.trekking.app.features.account.service.google.GoogleIdentity;
-import com.trekking.app.features.account.service.google.GoogleTokenVerifier;
-import com.trekking.app.features.account.service.otp.OtpMailSender;
+import com.trekking.app.features.auth.dto.request.AuthRequests;
+import com.trekking.app.features.auth.enums.OtpPurpose;
+import com.trekking.app.features.auth.service.AuthService;
+import com.trekking.app.features.auth.model.GoogleIdentity;
+import com.trekking.app.features.auth.service.GoogleTokenVerifier;
+import com.trekking.app.features.auth.service.OtpMailSender;
 import jakarta.servlet.http.Cookie;
 import java.util.List;
 import java.util.Map;

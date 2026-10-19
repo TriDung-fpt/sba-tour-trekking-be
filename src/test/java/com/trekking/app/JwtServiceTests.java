@@ -5,7 +5,7 @@ import com.trekking.app.core.config.AuthProperties;
 import com.trekking.app.core.security.JwtService;
 import com.trekking.app.core.security.JwtServiceImpl;
 import com.trekking.app.features.account.dto.response.AccountResponse;
-import com.trekking.app.features.account.service.session.AuthSession;
+import com.trekking.app.features.auth.model.AuthSession;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
