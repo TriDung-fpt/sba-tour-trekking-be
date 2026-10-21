@@ -34,6 +34,10 @@ public class AppAccount extends TimestampedEntity {
     @Column(name = "session_version", nullable = false)
     private long sessionVersion = 0;
 
+    // Owned by the role-change trigger; ordinary profile updates must not overwrite it.
+    @Column(name = "authorization_version", nullable = false, insertable = false, updatable = false)
+    private long authorizationVersion;
+
     @Column(name = "full_name", nullable = false, length = 200)
     private String fullName;
 

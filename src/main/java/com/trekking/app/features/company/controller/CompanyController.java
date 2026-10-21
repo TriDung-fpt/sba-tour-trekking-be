@@ -4,6 +4,7 @@ import com.trekking.app.features.company.dto.request.CompanyProfileRequest;
 import com.trekking.app.features.company.dto.response.CompanyPageResponse;
 import com.trekking.app.features.company.dto.response.CompanyResponse;
 import com.trekking.app.features.company.service.CompanyService;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import jakarta.validation.Valid;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ContentDisposition;
@@ -23,6 +24,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/api/v1/companies")
+@SecurityRequirement(name = "bearerAuth")
 public class CompanyController {
     private final CompanyService service;
 

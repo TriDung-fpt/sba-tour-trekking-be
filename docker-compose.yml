@@ -53,6 +53,7 @@ services:
       - ./schema/migrations/001_add_google_subject.sql:/docker-entrypoint-initdb.d/02_google_auth.sql:ro
       - ./schema/migrations/002_add_account_session_version.sql:/docker-entrypoint-initdb.d/03_account_session_version.sql:ro
       - ./schema/migrations/003_add_cooperation_policy_terms.sql:/docker-entrypoint-initdb.d/04_cooperation_policy_terms.sql:ro
+      - ./schema/migrations/004_add_financial_permissions.sql:/docker-entrypoint-initdb.d/05_financial_permissions.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 5s

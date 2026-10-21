@@ -14,6 +14,39 @@ import static org.assertj.core.api.Assertions.*;
 
 class SchemaMigrationTests extends AuthTestInfrastructure {
     @Test
+    void financialUpgradePreservesAccountsStartsWithNoGrantsAndInvalidatesRoleChallenges() throws Exception {
+        String database = "financial_migration_" + UUID.randomUUID().toString().replace("-", "");
+        assertThat(database).matches("[a-z0-9_]+");
+        try (Connection admin = connection("auth_test")) {
+            execute(admin, "create database " + database);
+            try (Connection test = connection(database)) {
+                execute(test, Files.readString(Path.of("schema/schema.sql")));
+                execute(test, Files.readString(Path.of("schema/migrations/001_add_google_subject.sql")));
+                execute(test, Files.readString(Path.of("schema/migrations/002_add_account_session_version.sql")));
+                execute(test, Files.readString(Path.of("schema/migrations/003_add_cooperation_policy_terms.sql")));
+                execute(test, "insert into trekking.app_accounts(email,password_hash,full_name) values ('legacy@example.invalid','legacy-hash','Legacy')");
+                execute(test, "insert into trekking.account_roles(account_id,role) values (1,'accountant')");
+                execute(test, Files.readString(Path.of("schema/migrations/004_add_financial_permissions.sql")));
+                assertThat(value(test, "select password_hash from trekking.app_accounts where id=1")).isEqualTo("legacy-hash");
+                assertThat(value(test, "select authorization_version from trekking.app_accounts where id=1")).isEqualTo(0L);
+                assertThat(value(test, "select session_version from trekking.app_accounts where id=1")).isEqualTo(0L);
+                assertThat(value(test, "select count(*) from trekking.account_financial_permissions")).isEqualTo(0L);
+                execute(test, "insert into trekking.account_financial_permissions(account_id,permission,granted_by) values(1,'FINANCE_READ',1)");
+                execute(test, "delete from trekking.account_roles where account_id=1 and role='accountant'");
+                assertThat(value(test, "select authorization_version from trekking.app_accounts where id=1")).isEqualTo(1L);
+                assertThat(value(test, "select count(*) from trekking.account_financial_permissions")).isEqualTo(0L);
+                assertThatThrownBy(() -> execute(test, "insert into trekking.account_financial_permissions(account_id,permission,granted_by) values(1,'FINANCE_READ',1)"))
+                        .isInstanceOfSatisfying(SQLException.class, error -> assertThat(error.getSQLState()).isEqualTo("23514"));
+                execute(test, "insert into trekking.account_roles(account_id,role) values(1,'accountant')");
+                assertThat(value(test, "select authorization_version from trekking.app_accounts where id=1")).isEqualTo(2L);
+                assertThat(value(test, "select count(*) from trekking.account_financial_permissions")).isEqualTo(0L);
+            } finally {
+                execute(admin, "drop database " + database);
+            }
+        }
+    }
+
+    @Test
     void cooperationUpgradePreservesLegacyReceiptsAndRequiresExplicitCompleteTerms() throws Exception {
         String database = "terms_migration_" + UUID.randomUUID().toString().replace("-", "");
         assertThat(database).matches("[a-z0-9_]+");

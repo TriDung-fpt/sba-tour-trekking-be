@@ -164,6 +164,7 @@ public class AgreementServiceImpl implements AgreementService {
             throw conflict("AGREEMENT_ALREADY_ACCEPTED", "This company has already accepted the policy version");
         }
         String evidence = actor + "|" + account.getEmail() + "|" + account.getEmailVerifiedAt() + "|" + account.getSessionVersion()
+                + "|" + account.getAuthorizationVersion()
                 + "|" + companyId + "|" + company.getStatus() + "|" + company.getApprovedAt() + "|" + company.getUpdatedAt()
                 + "|" + member.getMemberRole() + "|" + member.getUpdatedAt() + "|" + policy.getId() + "|" + policy.getCompanyId()
                 + "|" + policy.getKind() + "|" + policy.getActive() + "|" + versionId + "|" + version.getContent()

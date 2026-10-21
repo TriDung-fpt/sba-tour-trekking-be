@@ -205,6 +205,48 @@ class InvitationIntegrationTests extends AccountAuthorizationTestSupport {
     }
 
     @Test
+    void rateLimitedIssuancePreservesCurrentChallengeAndAttemptBudget() {
+        assertThat(invitationStore.issue(EMAIL, "current-hash", "current-context")).isTrue();
+        assertThat(invitationStore.consume(EMAIL, "wrong-hash", "current-context")).isFalse();
+        assertThat(invitationStore.issue(EMAIL, "replacement-hash", "replacement-context")).isFalse();
+        assertThat(redis.opsForHash().entries(challenge())).containsEntry("hash", "current-hash")
+                .containsEntry("context", "current-context").containsEntry("attempts", "1");
+        assertThat(redis.opsForValue().get(challenge() + ":hour")).isEqualTo("1");
+        assertThat(redis.getExpire(challenge() + ":cooldown")).isBetween(55L, 60L);
+        assertThat(redis.getExpire(challenge() + ":hour")).isBetween(3595L, 3600L);
+        assertThat(invitationStore.consume(EMAIL, "current-hash", "current-context")).isTrue();
+        assertThat(invitationStore.consume(EMAIL, "current-hash", "current-context")).isFalse();
+    }
+
+    @Test
+    void staleDeliveryCancellationPreservesReplacementAndDoesNotReleaseSendQuota() {
+        assertThat(invitationStore.issue(EMAIL, "old-hash", "context")).isTrue();
+        clearCooldown();
+        assertThat(invitationStore.issue(EMAIL, "replacement-hash", "context")).isTrue();
+        invitationStore.cancel(EMAIL, "old-hash");
+        assertThat(redis.opsForHash().get(challenge(), "hash")).isEqualTo("replacement-hash");
+        invitationStore.cancel(EMAIL, "replacement-hash");
+        assertThat(redis.hasKey(challenge())).isFalse();
+        assertThat(redis.hasKey(challenge() + ":cooldown")).isTrue();
+        assertThat(redis.opsForValue().get(challenge() + ":hour")).isEqualTo("2");
+        assertThat(invitationStore.issue(EMAIL, "another-hash", "context")).isFalse();
+    }
+
+    @Test
+    void concurrentChallengeIssuanceAndConsumptionHaveOneWinner() throws Exception {
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            Callable<Boolean> issue = () -> invitationStore.issue(EMAIL, "hash", "context");
+            var issued = executor.invokeAll(List.of(issue, issue));
+            assertThat(List.of(issued.get(0).get(), issued.get(1).get())).containsExactlyInAnyOrder(true, false);
+            assertThat(redis.opsForValue().get(challenge() + ":hour")).isEqualTo("1");
+            Callable<Boolean> consume = () -> invitationStore.consume(EMAIL, "hash", "context");
+            var consumed = executor.invokeAll(List.of(consume, consume));
+            assertThat(List.of(consumed.get(0).get(), consumed.get(1).get())).containsExactlyInAnyOrder(true, false);
+        }
+        assertThat(redis.hasKey(challenge())).isFalse();
+    }
+
+    @Test
     void activationRequiresCsrfAndValidPassword() throws Exception {
         invite();
         mvc.perform(post(ACTIVATE).contentType("application/json").content(json.writeValueAsString(activation(code()))))

@@ -4,6 +4,7 @@ import com.trekking.app.features.auth.dto.response.MessageResponse;
 import com.trekking.app.features.invitation.dto.request.InvitationRequests;
 import com.trekking.app.features.invitation.dto.response.InvitationResponse;
 import com.trekking.app.features.invitation.service.InvitationService;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -20,22 +21,26 @@ public class InvitationController {
 
     @PostMapping("/api/v1/admin/staff/invitations")
     @ResponseStatus(HttpStatus.CREATED)
+    @SecurityRequirement(name = "bearerAuth")
     public InvitationResponse staff(@Valid @RequestBody InvitationRequests.Staff request) {
         return invitations.inviteStaff(request);
     }
 
     @PostMapping("/api/v1/companies/{companyId}/guides/invitations")
     @ResponseStatus(HttpStatus.CREATED)
+    @SecurityRequirement(name = "bearerAuth")
     public InvitationResponse guide(@PathVariable long companyId, @Valid @RequestBody InvitationRequests.Guide request) {
         return invitations.inviteGuide(companyId, request);
     }
 
     @PostMapping("/api/v1/admin/staff/invitations/{accountId}/resend")
     @ResponseStatus(HttpStatus.ACCEPTED)
+    @SecurityRequirement(name = "bearerAuth")
     public InvitationResponse resendStaff(@PathVariable long accountId) { return invitations.resendStaff(accountId); }
 
     @PostMapping("/api/v1/companies/{companyId}/guides/invitations/{accountId}/resend")
     @ResponseStatus(HttpStatus.ACCEPTED)
+    @SecurityRequirement(name = "bearerAuth")
     public InvitationResponse resendGuide(@PathVariable long companyId, @PathVariable long accountId) {
         return invitations.resendGuide(companyId, accountId);
     }

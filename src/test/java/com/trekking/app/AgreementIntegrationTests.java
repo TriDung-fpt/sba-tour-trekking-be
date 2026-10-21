@@ -215,6 +215,16 @@ class AgreementIntegrationTests extends AccountAuthorizationTestSupport {
     }
 
     @Test
+    void oldSigningCodeStaysInvalidAfterManagerRoleIsRevokedAndRegranted() throws Exception {
+        request(version).andExpect(status().isAccepted());
+        String code = otp();
+        jdbc.update("delete from trekking.account_roles where account_id=? and role='company_manager'", owner);
+        jdbc.update("insert into trekking.account_roles(account_id, role) values (?, 'company_manager')", owner);
+        accept(version, code).andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_AGREEMENT_OTP"));
+        assertThat(jdbc.queryForObject("select count(*) from trekking.company_agreements", Long.class)).isZero();
+    }
+
+    @Test
     void limitsShareEmailAcrossCompanyAndVersionAndCapAtFivePerHour() throws Exception {
         request(version).andExpect(status().isAccepted());
         long second = company(admin, "Second");

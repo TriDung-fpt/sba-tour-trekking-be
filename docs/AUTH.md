@@ -1,5 +1,8 @@
 # Authentication
 
+Current backend API inventory, financial grants, shared business guards and
+verification notes: [Module 1 backend](MODULE_1_BACKEND.md).
+
 Auth uses the existing account entities and PostgreSQL tables. OTPs, refresh
 token hashes, rate limits and session metadata are stored in Redis. Google sign-in
 uses a unique, nullable `app_accounts.google_subject` to persist Google's stable
@@ -8,8 +11,9 @@ uses a unique, nullable `app_accounts.google_subject` to persist Google's stable
 ## Database upgrade
 
 For an existing database, apply `schema/migrations/001_add_google_subject.sql`
-then `schema/migrations/002_add_account_session_version.sql` and
-`schema/migrations/003_add_cooperation_policy_terms.sql` once before starting
+then `schema/migrations/002_add_account_session_version.sql`,
+`schema/migrations/003_add_cooperation_policy_terms.sql` and
+`schema/migrations/004_add_financial_permissions.sql` once before starting
 this backend version. For example, with the Compose
 database (replace the username and database with your settings):
 
@@ -17,12 +21,19 @@ database (replace the username and database with your settings):
 Get-Content schema/migrations/001_add_google_subject.sql | docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U your_database_user -d trekking_db
 Get-Content schema/migrations/002_add_account_session_version.sql | docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U your_database_user -d trekking_db
 Get-Content schema/migrations/003_add_cooperation_policy_terms.sql | docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U your_database_user -d trekking_db
+Get-Content schema/migrations/004_add_financial_permissions.sql | docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U your_database_user -d trekking_db
 ```
 
 The migration preserves existing accounts, passwords, roles and sessions.
 Fresh Compose volumes and Testcontainers load the baseline followed by these
 migrations. Restarting an existing volume does not execute init scripts;
 apply the upgrade explicitly. The deployed baseline is kept unchanged.
+
+Migration 004 starts every account without financial grants. An ADMIN must
+explicitly grant each duty to an activated ACCOUNTANT. Role changes increment a
+separate authorization version for signing challenges; removing then regranting
+a role cannot revive an old agreement OTP. Removing ACCOUNTANT deletes its
+financial grants. Existing JWT/refresh sessions keep their existing semantics.
 
 ## Local setup
 

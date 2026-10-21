@@ -5,6 +5,7 @@ import com.trekking.app.features.company.dto.request.PolicyPublishRequest;
 import com.trekking.app.features.company.dto.response.PolicyResponse;
 import com.trekking.app.features.company.dto.response.PolicyVersionResponse;
 import com.trekking.app.features.company.service.PolicyService;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/v1/admin/policies")
+@SecurityRequirement(name = "bearerAuth")
 public class PolicyController {
     private final PolicyService policies;
 

@@ -7,6 +7,7 @@ import com.trekking.app.features.company.dto.response.AgreementReceiptResponse;
 import com.trekking.app.features.company.dto.response.PolicyVersionResponse;
 import com.trekking.app.features.company.service.AgreementService;
 import com.trekking.app.features.company.service.PolicyService;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -21,6 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/v1/companies/{companyId}")
+@SecurityRequirement(name = "bearerAuth")
 public class AgreementController {
     private final AgreementService agreements;
     private final PolicyService policies;

@@ -9,6 +9,7 @@ import com.trekking.app.features.account.dto.response.AuthorizationResponse;
 import com.trekking.app.features.account.enums.AccountStatus;
 import com.trekking.app.features.account.enums.RoleType;
 import com.trekking.app.features.account.repository.AccountRoleRepository;
+import com.trekking.app.features.account.repository.AccountFinancialPermissionRepository;
 import com.trekking.app.features.account.repository.AppAccountRepository;
 import com.trekking.app.features.company.enums.CompanyMemberRole;
 import com.trekking.app.features.company.enums.CompanyStatus;
@@ -38,16 +39,19 @@ public class AuthorizationServiceImpl implements AuthorizationService {
     private final CompanyMemberRepository members;
     private final GuideRepository guides;
     private final ScheduleGuideRepository assignments;
+    private final AccountFinancialPermissionRepository financialPermissions;
 
     public AuthorizationServiceImpl(AppAccountRepository accounts, AccountRoleRepository roles,
                                 CompanyRepository companies, CompanyMemberRepository members,
-                                GuideRepository guides, ScheduleGuideRepository assignments) {
+                                GuideRepository guides, ScheduleGuideRepository assignments,
+                                AccountFinancialPermissionRepository financialPermissions) {
         this.accounts = accounts;
         this.roles = roles;
         this.companies = companies;
         this.members = members;
         this.guides = guides;
         this.assignments = assignments;
+        this.financialPermissions = financialPermissions;
     }
 
     public long currentAccountId() { return actor().accountId(); }
@@ -56,6 +60,11 @@ public class AuthorizationServiceImpl implements AuthorizationService {
 
     public void require(Permission permission) {
         Actor actor = actor();
+        if (permission != null && permission.isFinancial()) {
+            if (!actor.roles().contains(RoleType.ACCOUNTANT)
+                    || !financialPermissions.existsByAccountIdAndPermission(actor.accountId(), permission)) throw forbidden();
+            return;
+        }
         // Scoped actions can only be checked through the corresponding resource guard.
         if (!ACCOUNT_PERMISSIONS.contains(permission) || !actor.roles().contains(RoleType.ADMIN)) throw forbidden();
     }
@@ -89,8 +98,12 @@ public class AuthorizationServiceImpl implements AuthorizationService {
 
     public AuthorizationResponse authorization() {
         Actor actor = actor();
-        var permissions = actor.roles().contains(RoleType.ADMIN)
-                ? ACCOUNT_PERMISSIONS.stream().map(Enum::name).sorted().toList() : java.util.List.<String>of();
+        var granted = EnumSet.noneOf(Permission.class);
+        if (actor.roles().contains(RoleType.ADMIN)) granted.addAll(ACCOUNT_PERMISSIONS);
+        if (actor.roles().contains(RoleType.ACCOUNTANT)) {
+            financialPermissions.findAllByAccountId(actor.accountId()).forEach(grant -> granted.add(grant.getPermission()));
+        }
+        var permissions = granted.stream().map(Enum::name).sorted().toList();
         var contexts = actor.roles().contains(RoleType.COMPANY_MANAGER)
                 ? members.findActiveContexts(actor.accountId()).stream()
                     .filter(m -> m.getMemberRole() == CompanyMemberRole.OWNER || m.getMemberRole() == CompanyMemberRole.MANAGER)
