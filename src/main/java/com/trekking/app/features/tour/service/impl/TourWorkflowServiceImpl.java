@@ -2,10 +2,12 @@ package com.trekking.app.features.tour.service.impl;
 
 import com.trekking.app.features.tour.dto.request.*;
 import com.trekking.app.features.tour.dto.response.*;
-
-
-
-
+import com.trekking.app.features.account.entity.AuditLog;
+import com.trekking.app.features.account.repository.AuditLogRepository;
+import com.trekking.app.features.booking.entity.Booking;
+import com.trekking.app.features.booking.enums.BookingStatus;
+import com.trekking.app.features.booking.repository.BookingRepository;
+import com.trekking.app.features.booking.repository.ParticipantRepository;
 
 
 import com.trekking.app.features.tour.entity.*;
@@ -42,15 +44,21 @@ public class TourWorkflowServiceImpl implements TourWorkflowService {
     private final PackingItemRepository packing;
     private final TourEquipmentPackageRepository equipmentPackages;
     private final TourScheduleRepository schedules;
+    private final BookingRepository bookings;
+    private final ParticipantRepository participants;
+    private final AuditLogRepository auditLogs;
     private final Clock clock;
 
     public TourWorkflowServiceImpl(TourRepository tours, TourAccessService access, TourLocationRepository tourLocations,
                                    LocationRepository locations, TourMediaRepository media,
                                    TourActivityRepository activities, PackingItemRepository packing,
-                                   TourEquipmentPackageRepository equipmentPackages, TourScheduleRepository schedules, Clock clock) {
+                                   TourEquipmentPackageRepository equipmentPackages, TourScheduleRepository schedules,
+                                   BookingRepository bookings, ParticipantRepository participants,
+                                   AuditLogRepository auditLogs, Clock clock) {
         this.tours = tours; this.access = access; this.tourLocations = tourLocations; this.locations = locations;
         this.media = media; this.activities = activities; this.packing = packing; this.equipmentPackages = equipmentPackages;
-        this.schedules = schedules; this.clock = clock;
+        this.schedules = schedules; this.bookings = bookings; this.participants = participants;
+        this.auditLogs = auditLogs; this.clock = clock;
     }
 
     @Override @Transactional(readOnly = true)
@@ -281,11 +289,28 @@ public class TourWorkflowServiceImpl implements TourWorkflowService {
         boolean manager = access.isActiveManager(tour.getCompanyId(), accountId);
         boolean guide = access.guideIdForAccount(accountId, tour.getCompanyId()).filter(id -> access.assignedGuide(scheduleId, id, tour.getCompanyId())).isPresent();
         if (!manager && !guide) throw error(HttpStatus.FORBIDDEN, "SCHEDULE_ACCESS", "Assigned guide or company manager access is required");
+        OffsetDateTime now = OffsetDateTime.now(clock);
+        List<Booking> confirmedBookings = bookings.lockByScheduleAndStatus(scheduleId, BookingStatus.CONFIRMED);
+        s = schedules.findByIdForBooking(scheduleId)
+                .orElseThrow(() -> error(HttpStatus.NOT_FOUND, "SCHEDULE_NOT_FOUND", "Schedule not found"));
         if (s.getStatus() != ScheduleStatus.SCHEDULED && s.getStatus() != ScheduleStatus.ONGOING)
             throw error(HttpStatus.CONFLICT, "SCHEDULE_STATE", "Schedule cannot be completed in its current state");
-        OffsetDateTime now = OffsetDateTime.now(clock);
         if (!s.getEndsAt().isBefore(now) || access.countUnresolvedHolds(scheduleId) > 0)
             throw error(HttpStatus.CONFLICT, "SCHEDULE_INCOMPLETE", "Departure must have ended and active payment holds must be resolved");
+        for (Booking booking : confirmedBookings) {
+            BookingStatus completedStatus = participants.existsByBookingIdAndCheckedInAtIsNotNull(booking.getId())
+                    ? BookingStatus.COMPLETED : BookingStatus.NO_SHOW;
+            booking.setStatus(completedStatus);
+            bookings.save(booking);
+            AuditLog bookingAudit = new AuditLog();
+            bookingAudit.setActorId(accountId);
+            bookingAudit.setAction(completedStatus == BookingStatus.COMPLETED ? "BOOKING_COMPLETED" : "BOOKING_NO_SHOW");
+            bookingAudit.setEntityType("booking");
+            bookingAudit.setEntityId(booking.getId());
+            bookingAudit.setReason("Departure completed; attendance derived from participant check-in records");
+            bookingAudit.setDetails("{}");
+            auditLogs.save(bookingAudit);
+        }
         s.setStatus(ScheduleStatus.COMPLETED); s.setActualCompletedAt(now); s.setCompletedBy(accountId); schedules.save(s);
         access.auditSchedule(accountId, "SCHEDULE_COMPLETED", scheduleId, null); return new ActionMessage("Schedule completed");
     }

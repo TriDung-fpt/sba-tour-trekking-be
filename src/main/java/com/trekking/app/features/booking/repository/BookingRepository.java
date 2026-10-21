@@ -23,6 +23,9 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select b from Booking b where b.id = :id")
     Optional<Booking> lockById(@Param("id") long id);
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select b from Booking b where b.scheduleId = :scheduleId and b.status = :status order by b.id")
+    List<Booking> lockByScheduleAndStatus(@Param("scheduleId") long scheduleId, @Param("status") BookingStatus status);
     @Query(value = "select id from trekking.bookings where status = 'pending_payment' and hold_expires_at <= :now order by hold_expires_at limit 50 for update skip locked", nativeQuery = true)
     List<Long> lockExpiredIds(@Param("now") OffsetDateTime now);
     @Lock(LockModeType.PESSIMISTIC_WRITE)

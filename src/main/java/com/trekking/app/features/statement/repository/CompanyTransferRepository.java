@@ -6,4 +6,5 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface CompanyTransferRepository extends JpaRepository<CompanyTransfer, Long> {
     List<CompanyTransfer> findAllByStatementIdOrderByTransferredAtAscIdAsc(Long statementId);
+    java.util.Optional<CompanyTransfer> findByIdempotencyKey(String idempotencyKey);
 }

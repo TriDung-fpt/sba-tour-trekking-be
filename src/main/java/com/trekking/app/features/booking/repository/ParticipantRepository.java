@@ -11,6 +11,7 @@ import org.springframework.data.repository.query.Param;
 
 public interface ParticipantRepository extends JpaRepository<Participant, Long> {
     List<Participant> findAllByBookingIdOrderByIdAsc(Long bookingId);
+    boolean existsByBookingIdAndCheckedInAtIsNotNull(Long bookingId);
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select p from Participant p where p.id = :participantId and p.bookingId = :bookingId")
     Optional<Participant> lockByBooking(@Param("participantId") long participantId, @Param("bookingId") long bookingId);
