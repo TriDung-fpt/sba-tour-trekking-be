@@ -147,3 +147,17 @@ Provide local values through `.env` using `.env.example` as a guide. Never commi
 - Keep secrets, tokens, and environment-specific settings out of source control.
 - Update `.env.example` when introducing required configurations.
 - Document API or authentication behavior changes in `docs/`.
+
+## 10. Business Lifecycle and Recovery
+
+- Every reversible business state transition (archive, deactivate, suspend, or hide) must have an authorized restore/reactivate path and a documented API contract. Do not implement a reversible UI action without its reverse transition.
+- If a restored item cannot safely return directly to its prior public/active state, restore it to the safest editable state and document the required review or reactivation steps.
+- Preserve the effect of irreversible side effects when restoring. For example, canceled departures are not silently reopened; the API and frontend must tell the partner what must be recreated.
+- Keep lifecycle transitions and their side effects explicit in the API specification, including authorization and audit behavior.
+
+## 11. Database Migration Coordination
+
+- Follow `docs/DB_MIGRATIONS.md` for every database schema change.
+- Agents MUST NOT guess or reserve Flyway version numbers. Put parallel-work SQL in `schema/migration-drafts/`; the integration coordinator assigns sequential versions and merges each numbered migration.
+- Never edit or renumber a versioned migration after it has been merged or applied. Add a new migration to fix forward.
+- Do not manually apply Flyway-managed migrations. Keep new database bootstrap in `schema/schema.sql` and versioned changes in `src/main/resources/db/migration`.
