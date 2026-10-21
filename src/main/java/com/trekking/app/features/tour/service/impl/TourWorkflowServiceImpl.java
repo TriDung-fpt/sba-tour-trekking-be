@@ -293,7 +293,9 @@ public class TourWorkflowServiceImpl implements TourWorkflowService {
     @Override @Transactional(readOnly = true)
     public RosterResponse roster(long accountId, long tourId, long scheduleId, int page, int size) {
         Tour tour = ownedTour(tourId, accountId, false); ownedSchedule(tour, scheduleId); validatePage(page, size);
-        return new RosterResponse(scheduleId, access.roster(scheduleId, tour.getCompanyId(), size, page * size));
+        long total = access.rosterCount(scheduleId);
+        return new RosterResponse(scheduleId, access.roster(scheduleId, tour.getCompanyId(), size, page * size),
+                page, size, total, (int) Math.ceil((double) total / size));
     }
 
     @Override @Transactional(readOnly = true)
@@ -306,8 +308,9 @@ public class TourWorkflowServiceImpl implements TourWorkflowService {
             put(zip, "xl/workbook.xml", "<?xml version=\"1.0\" encoding=\"UTF-8\"?><workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheets><sheet name=\"Roster\" sheetId=\"1\" r:id=\"rId1\"/></sheets></workbook>");
             put(zip, "xl/_rels/workbook.xml.rels", "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet1.xml\"/></Relationships>");
             var xml = new StringBuilder("<?xml version=\"1.0\" encoding=\"UTF-8\"?><worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><sheetData>");
-            xml.append(rowXml(1, List.of("Booking code", "Full name", "Phone", "Emergency contact")));
-            for (int i = 0; i < rows.size(); i++) { var p = rows.get(i); xml.append(rowXml(i + 2, Arrays.asList(p.bookingCode(), p.fullName(), p.phone(), p.emergencyContact()))); }
+            xml.append(rowXml(1, List.of("Booking code", "Full name", "Phone", "Check-in time", "Check-in note")));
+            for (int i = 0; i < rows.size(); i++) { var p = rows.get(i); xml.append(rowXml(i + 2, Arrays.asList(p.bookingCode(), p.fullName(), p.phone(),
+                    p.checkedInAt() == null ? null : p.checkedInAt().toString(), p.checkInNote()))); }
             xml.append("</sheetData></worksheet>"); put(zip, "xl/worksheets/sheet1.xml", xml.toString()); zip.finish(); return bytes.toByteArray();
         } catch (IOException e) { throw error(HttpStatus.INTERNAL_SERVER_ERROR, "EXPORT_FAILED", "Roster export could not be generated"); }
     }
@@ -315,7 +318,7 @@ public class TourWorkflowServiceImpl implements TourWorkflowService {
         zip.putNextEntry(new ZipEntry(name)); zip.write(value.getBytes(StandardCharsets.UTF_8)); zip.closeEntry();
     }
     private String rowXml(int row, List<String> values) {
-        String[] columns = {"A", "B", "C", "D"}; var xml = new StringBuilder("<row r=\"").append(row).append("\">");
+        String[] columns = {"A", "B", "C", "D", "E"}; var xml = new StringBuilder("<row r=\"").append(row).append("\">");
         for (int i = 0; i < values.size(); i++) { String value = values.get(i); if (value == null) continue;
             xml.append("<c r=\"").append(columns[i]).append(row).append("\" t=\"inlineStr\"><is><t xml:space=\"preserve\">")
                     .append(xmlEscape(value)).append("</t></is></c>"); }

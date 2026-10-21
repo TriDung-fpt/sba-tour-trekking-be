@@ -1,7 +1,61 @@
 # WeTrek tour API contract — PA-01/02/03/04/10/11 and CU-01/02
 
+## Partner operations MVP (PO-01)
 
-This is the shared API contract for the tour task. Backend implementation is scoped to `features/tour/**`. Frontend implementation is scoped to `src/features/tours/**` and the corresponding public/partner tour screens. Changes to auth, account, company, booking, payment, shared security, routing, or other feature packages require coordinator approval. Do not modify another feature to complete a tour story.
+This section defines partner booking, departure, roster, check-in, cancellation, and statement reads. Customer booking creation and payment collection are defined below. All partner endpoints require an active owner/manager membership in an approved company, except check-in, which also permits a guide assigned to that departure. A company ID supplied by the client is never trusted. PII is limited to what is needed to operate the trip.
+
+| Method and path | Access | Purpose |
+| --- | --- | --- |
+| GET `/partner/bookings?status&dateFrom&dateTo&query&page&size` | Company owner/manager | List that company's bookings, optionally filter by status, departure date range, or booking code/customer name. |
+| GET `/partner/bookings/{bookingId}` | Company owner/manager | Read booking, departure, minimal customer contact, participant list, payment totals, and refund request summaries. |
+| GET `/partner/departures?from&to&status&page&size` | Company owner/manager | Read company departures for day-to-day operations without fetching each tour separately. |
+| GET `/partner/statements?page&size` | Company owner/manager | Read settlement statements and recorded transfers; partner access is read-only. The current backend has no statement-generation or transfer-recording endpoint. |
+| GET `/partner/guides` | Company owner/manager | List active guide accounts for the caller's approved companies, for assignment controls. |
+| GET `/partner/tours/{tourId}/schedules/{scheduleId}/roster?page&size` | Owning company member | Read confirmed/completed/no-show booking participants; expired and pending holds are excluded. |
+| POST `/partner/bookings/{bookingId}/participants/{participantId}/check-in` | Active company member or assigned guide | Check in one participant; request `{note?}`. Repeating check-in is idempotent and returns the existing check-in. |
+| DELETE `/partner/bookings/{bookingId}/participants/{participantId}/check-in` | Company owner/manager | Undo a mistaken check-in before the schedule ends; request `{reason}` and record an audit event. |
+| POST `/partner/bookings/{bookingId}/cancel` | Company owner/manager | Request cancellation of a booking with `{reason}`. Server validates lifecycle and records actor/reason. It does not create a refund or claim a refund is complete. |
+
+Booking list response: `{items:[{id,bookingCode,status,createdAt,departure:{scheduleId,tourId,tourTitle,startsAt,endsAt},participantCount,totalPriceVnd,receivedVnd,pendingReviewVnd,refundedVnd}],page,size,totalItems,totalPages}`. Statuses are `pending_payment`, `confirmed`, `expired`, `cancelled`, `completed`, `no_show`. Pending holds past `holdExpiresAt` are shown as `expired` in reads and do not count as available seats; background expiry owns the persisted transition.
+
+Booking detail response: `{id,bookingCode,status,createdAt,departure:{scheduleId,tourId,tourTitle,startsAt,endsAt,meetingPoint,contactPhone},customer:{displayName,email,phone},participants:[{id,fullName,email?,phone?,checkedInAt?,checkInNote?}],money:{totalPriceVnd,receivedVnd,pendingReviewVnd,refundedVnd,depositPercent,balanceDueAt},refundRequests:[{id,requestedAmountVnd,approvedAmountVnd?,status,reason,decisionNote?,createdAt}]}`. Partner detail may show participant contact data only for confirmed bookings and members authorized for trip operations. `receivedVnd` includes accepted payments; funds with `pending_review` allocation are reported separately as `pendingReviewVnd`. Do not expose transaction references, evidence URLs, account IDs, payment tokens, gateway payloads, or private cancellation policy internals.
+
+Departures response: `{items:[{scheduleId,tourId,tourTitle,startsAt,endsAt,status,meetingPoint,contactPhone,capacity,heldSeats,confirmedSeats,availableSeats,participantCount,guideNames}],page,size,totalItems,totalPages}`. Include the caller's approved-company departures with status `scheduled`, `ongoing`, or `completed` by default, filtered by ISO instant `from` inclusive and `to` exclusive; default window is now minus one day through 90 days later. `status=cancelled` can explicitly request cancelled departures. Statements response: `{items:[{id,periodStart,periodEnd,status,payableVnd,transferredVnd,remainingVnd,transfers:[{amountVnd,transferredAt}],note}],page,size,totalItems,totalPages}`; statuses are `draft`, `approved`, `paying`, `paid`, `failed`. Do not expose bank references or evidence URLs. Statement and transfer rows are read-only to partner users. The current backend does not yet provide admin reconciliation, statement generation, or transfer-recording endpoints; no bank transfer is initiated by the platform.
+
+Guide options response: `{items:[{id,companyId,displayName,active}]}`. Only active guides whose account is active and whose company is approved are returned.
+
+Cancellation is allowed only for `pending_payment` or `confirmed` bookings before departure starts, when there is no active payment hold ambiguity; a confirmed cancellation updates the booking state but does not itself calculate or execute a refund. An expired hold is not cancellable. Company members cannot transition bookings to `completed` or `no_show`; schedule completion and customer attendance remain separate audited operations. Refund requests are customer/admin initiated under the saved policy. Partners can see their status and decision note only; they cannot approve, reject, or mark a refund paid. Only a verified gateway webhook or an authorized admin manual verification may create a received payment. Refund transactions are recorded only after the actual transfer is verified and evidenced.
+
+Pagination is zero-based, defaults to `page=0&size=20`, and `size` is limited to 1–100. Dates are ISO-8601 instants. List search is case-insensitive and bounded; invalid status/date windows return 400. Missing or non-owned booking/participant IDs return 404. Invalid transitions return 409. Mutations run transactionally, lock the booking/participant row where competing updates could conflict, and write an audit record. Check-in is idempotent; cancel requires a reason and repeated cancellation returns the current state without duplicating audit side effects.
+
+## Customer booking creation (BK-01)
+
+| Method and path | Access | Purpose |
+| --- | --- | --- |
+| POST `/bookings` | Signed-in customer + `Idempotency-Key` header | Atomically hold seats, snapshot price and policy, create booking and participants. |
+
+Create request: `{scheduleId,participantCount,includesEquipment,participants:[{fullName,email?,phone?,accountId?}]}`. `participantCount` must equal the participant array size (1–20). The server locks the schedule row, validates that the tour is published, company approved, departure scheduled and future, and capacity remains; calculates price/deposit from schedule values; snapshots the selected cancellation policy and current company agreement; writes an idempotent booking and participants; increments `held_seats`; sets `status=pending_payment` and `holdExpiresAt=now+15 minutes`. Idempotency is scoped to the authenticated account: a repeated key with the same normalized request returns the original booking, while reuse with a different request returns 409. Success is `201` with booking detail `{id,bookingCode,status,holdExpiresAt,participantCount,totalPriceVnd,depositDueVnd,balanceDueAt,participants:[{id,fullName,email?,phone?}]}`. Do not accept price, deposit, company, customer, booking status, policy snapshot, hold duration or received payment from the client.
+
+This endpoint creates a seat hold. A payment attempt is not a payment. The PayOS checkout endpoints below are available, but return `503 PAYMENT_PROVIDER_NOT_CONFIGURED` until merchant credentials and return/cancel URLs are configured. Only a signature-verified PayOS webhook may insert a received payment and confirm a booking. A scheduled expiry processor releases expired holds transactionally and idempotently. Refund processing remains admin/provider controlled; partners only see refund status as described above.
+
+### PayOS checkout and payment status
+
+| Method and path | Access | Purpose |
+| --- | --- | --- |
+| POST `/bookings/{bookingId}/payment-links` | Booking owner | Create a PayOS checkout link for a due deposit, full payment, or confirmed-booking balance. |
+| GET `/bookings/{bookingId}/payment-status` | Booking owner | Read the current booking payment totals and attempt history. |
+| POST `/payments/payos/webhook` | Public provider callback | Verify PayOS signature and idempotently record successful payments. |
+
+Create-link request: `{purpose:"deposit"|"full"|"balance"}`. A pending booking accepts `deposit` or `full`; a confirmed booking accepts `balance`. Amounts and expiry are derived from the booking snapshot and current accepted ledger rows. Response: `{enabled,attemptId,purpose,amountVnd,status,checkoutUrl,qrCode,expiresAt}`. `qrCode` is the raw PayOS EMVCo/VietQR payload string. Return and cancel URLs include `paymentReturn=success|cancelled` and `bookingId`; redirects are not proof of payment. A provider creation failure returns a `failed` attempt without a checkout URL; an already active attempt of the same purpose returns 409. Status response: `{paymentEnabled,bookingStatus,totalPriceVnd,receivedVnd,pendingReviewVnd,refundedVnd,amountDueVnd,attempts:[{id,purpose,amountVnd,status,expiresAt}]}`. `receivedVnd` includes accepted payments; `pendingReviewVnd` reports a real but unreconciled amount. Pending attempts are not funds received.
+
+Configure `PAYOS_CLIENT_ID`, `PAYOS_API_KEY`, `PAYOS_CHECKSUM_KEY`, `PAYOS_RETURN_URL`, and `PAYOS_CANCEL_URL` through the backend environment. The SDK verifies the signed webhook before ledger changes. A valid success with an unexpected amount or a booking that can no longer be confirmed is recorded for review rather than confirming seats. Duplicate notices are idempotent. No credentials are committed in the repository. Refund execution, admin manual payment verification, statement generation, and transfer recording remain unavailable; no refund or bank transfer is initiated by these endpoints.
+
+
+This is the shared API contract for tour discovery and partner operations. Backend implementation is scoped to `features/tour/**` for tour authoring/departures and `features/booking/**` for customer booking and partner booking operations. Partner statement reads are in `features/statement/**`. Payment collection supports PayOS checkout and signed webhook verification when configured; refund execution and statement creation/transfer recording are not implemented and must not be shown as available.
+
+### Payment and settlement implementation boundary
+
+The current backend can create an idempotent 15-minute seat hold, create PayOS checkout links when configured, verify PayOS webhook signatures, and display ledger rows recorded in `customer_payments`, `customer_refunds`, `company_statements`, and `company_transfers`. It has no admin manual payment verification endpoint, refund execution endpoint, statement generation endpoint, or admin transfer-recording endpoint yet. Live collection requires merchant credentials and a reachable webhook URL configured in PayOS. Never infer payment/transfer success from a booking, payment attempt, provider redirect, partner action, or front-end result. Keep partner statement and booking financial surfaces read-only.
 
 ## Partner application API (PA-APP-01)
 
@@ -31,7 +85,7 @@ Schema changes are in `src/main/resources/db/migration/V1__partner_applications.
 - Bound pagination, validate enums/ranges/date windows, return safe errors, and avoid revealing unpublished tour data, reviewer notes, participant data, or private operational contacts in public responses.
 - Every partner/admin operation must verify caller role and resource ownership on the server. For a company-scoped request, never trust a company ID without checking active membership. Roster exports must apply the same authorization and row scope as roster reads.
 - Route uploads/URLs must be constrained by allowed format and size. Never execute uploaded content or accept arbitrary HTML. Do not add equipment stock tracking.
-- No endpoint here creates a booking or payment. Those features have separate owners.
+- Booking creation and PayOS payment verification are defined by BK-01 above. No endpoint here executes refunds or initiates partner transfers.
 
 ## CU-01: public search, filters and sort
 
@@ -100,7 +154,7 @@ Schedule request shape: `{startsAt,endsAt,capacity,basePriceVnd,equipmentFeeVnd,
 
 Scope by active company membership, tour and schedule before retrieving/exporting rows. Do not expose another company’s passengers. Use safe attachment headers and a non-user-controlled filename.
 
-Roster response shape: `{scheduleId,participants:[{bookingCode,fullName,phone?,emergencyContact?}]}`. Do not include identity-document numbers, account credentials, payment tokens or other fields not needed for departure operations.
+Roster response shape: `{scheduleId,participants:[{bookingCode,participantId,fullName,phone?,checkedInAt?,checkInNote?}],page,size,totalItems,totalPages}`. Only confirmed/completed/no-show bookings are included. Do not include identity-document numbers, account credentials, payment tokens or other fields not needed for departure operations.
 
 ## PA-10: equipment packages
 
@@ -110,7 +164,7 @@ Roster response shape: `{scheduleId,participants:[{bookingCode,fullName,phone?,e
 
 ## Implementation status
 
-The current change set adds public search/detail/reviews, partner authoring and schedule operations, moderation endpoints, and roster read/export within `features/tour/**`; the FE adds corresponding tour browse/detail and partner components. Backend clean compilation, frontend lint, final DTO alignment, and the tour-scoped reviewer pass are complete. PA-02 backend moderation endpoints exist, but its FE component is not wired to the existing admin screen because that requires an out-of-scope shared router edit and is pending user authorization; therefore PA-02 is not end-to-end complete. Full PA-10 priced packages remain blocked by the schema gap above. Do not describe either blocked flow as accepted until its endpoint, DTO, authorization and UI work end to end.
+The current change set adds customer booking holds, PayOS checkout and webhook verification, partner booking/departure/roster/check-in/cancellation workflows, read-only partner statements, and frontend customer/partner screens. Refund execution, admin manual payment verification, statement generation, and transfer recording are not implemented. Full PA-10 priced equipment options remain incomplete because the current schema has only one descriptive package and one schedule-level fee; do not present those as multiple priced options. PA-02 moderation is backend-only and is not end-to-end wired into the admin UI. Do not describe these limitations as completed workflows.
 
 ## Account profile contract (approved cross-feature scope)
 

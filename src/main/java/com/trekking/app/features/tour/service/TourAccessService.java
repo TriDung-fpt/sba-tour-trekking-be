@@ -130,11 +130,13 @@ public class TourAccessService {
     }
 
     public List<Participant> roster(long scheduleId, long companyId, int limit, int offset) {
-        List<Object[]> rows = bookings.findRosterRows(scheduleId, companyId, ROSTER_STATUSES,
-                BookingStatus.PENDING_PAYMENT, OffsetDateTime.now(), PageRequest.of(offset / limit, limit));
-        return rows.stream().map(row -> new Participant((String) row[0], (String) row[1], (String) row[2], null))
+        List<Object[]> rows = bookings.findRosterRows(scheduleId, companyId, ROSTER_STATUSES, PageRequest.of(offset / limit, limit));
+        return rows.stream().map(row -> new Participant((String) row[0], ((Number) row[1]).longValue(),
+                        (String) row[2], (String) row[3], (OffsetDateTime) row[4], (String) row[5]))
                 .toList();
     }
+
+    public long rosterCount(long scheduleId) { return bookings.countByScheduleIdAndStatusIn(scheduleId, ROSTER_STATUSES); }
 
     public long countBookings(long scheduleId) {
         return bookings.countOccupiedSeats(scheduleId, BookingStatus.CONFIRMED,
