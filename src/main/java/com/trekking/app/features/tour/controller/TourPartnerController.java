@@ -38,6 +38,11 @@ public class TourPartnerController {
             @AuthenticationPrincipal UserPrincipal user) {
         return new PolicyVersionList(workflow.cancellationPolicyVersions(user.accountId()));
     }
+    @PostMapping("/upload-signature")
+    @PreAuthorize("hasRole('COMPANY_MANAGER')")
+    public CloudinaryUploadSignature imageUploadSignature(@AuthenticationPrincipal UserPrincipal user) {
+        return workflow.imageUploadSignature(user.accountId());
+    }
     @PostMapping
     @PreAuthorize("hasRole('COMPANY_MANAGER')")
     public TourDetail create(@AuthenticationPrincipal UserPrincipal user,

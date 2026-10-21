@@ -1,11 +1,11 @@
 # Database migration rules
 
-The backend uses Flyway versioned SQL migrations from `src/main/resources/db/migration`. Flyway applies pending migrations during backend startup and records checksums in `flyway_schema_history`. Hibernate remains in `validate` mode. The existing `schema/schema.sql` is the baseline for a new local database; on existing non-empty databases Flyway records that baseline as version `0` before applying `V1`.
+The backend uses Flyway versioned SQL migrations from `src/main/resources/db/migration`. Flyway applies pending migrations during backend startup and records checksums in `flyway_schema_history`. Hibernate remains in `validate` mode. The existing `schema/schema.sql` is the baseline for a new local database; on existing non-empty databases Flyway records that baseline as version `0` before applying pending migrations.
 
 ## Version allocation and agent coordination
 
 - Migration versions are sequential integers: `V1__name.sql`, `V2__name.sql`, and so on. Do not use dates, timestamps, branch names, or guessed numbers.
-- Only the integration coordinator assigns the next number. The current highest assigned version is `V1`; the next unassigned version is `V2`.
+- Only the integration coordinator assigns the next number. The current highest assigned version is `V2`; the next unassigned version is `V3`.
 - Agents working in parallel must put unnumbered drafts outside Flyway's configured location, under `schema/migration-drafts/`. Never add a guessed `Vn` file directly.
 - The coordinator serially reviews drafts, allocates the next number, moves the approved script into `src/main/resources/db/migration`, updates this registry, and merges it. The version registry and migration are committed together.
 - If two drafts overlap or conflict, the coordinator combines or orders them and assigns distinct versions. Do not solve a conflict by renumbering a migration already merged or applied.
@@ -14,7 +14,8 @@ The backend uses Flyway versioned SQL migrations from `src/main/resources/db/mig
 | --- | --- | --- |
 | 0 | Existing `schema/schema.sql` baseline | Baseline |
 | 1 | `V1__partner_applications.sql` | Assigned |
-| 2 | Next available; coordinator assignment required | Unassigned |
+| 2 | `V2__tour_refund_rules.sql` | Assigned |
+| 3 | Next available; coordinator assignment required | Unassigned |
 
 ## Writing and changing migrations
 

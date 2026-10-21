@@ -193,6 +193,7 @@ CREATE TABLE tours (
     route_file_url TEXT,
     status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','pending','published','rejected','archived')),
     cancellation_policy_version_id BIGINT REFERENCES policy_versions(id),
+    cancellation_refund_rules JSONB NOT NULL DEFAULT '[]'::JSONB CHECK (jsonb_typeof(cancellation_refund_rules) = 'array'),
     reviewed_by BIGINT REFERENCES app_accounts(id),
     reviewed_at TIMESTAMPTZ,
     review_note TEXT,

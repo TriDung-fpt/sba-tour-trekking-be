@@ -20,6 +20,7 @@ public record TourWriteRequest(
         @Size(max = 10000) String excludedServices,
         @Size(max = 2048) @Pattern(regexp = "(?i)(https://[^\\s?#]+\\.(geojson|gpx)(\\?[^\\s#]*)?|/[^\\s?#]+\\.(geojson|gpx)(\\?[^\\s#]*)?)") String routeFileUrl,
         @Positive Long cancellationPolicyVersionId,
+        @Valid @Size(max = 8) List<CancellationRefundRuleRequest> cancellationRefundRules,
         @Size(max = 50) List<@Positive Long> locationIds,
         @Valid @Size(max = 100) List<MediaItem> media,
         @Valid @Size(max = 200) List<ActivityItem> itinerary,

@@ -31,6 +31,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 
 @Service
 public class TourServiceImpl implements TourService {
@@ -44,11 +46,13 @@ public class TourServiceImpl implements TourService {
     private final TourEquipmentPackageRepository equipmentPackages;
     private final PackingItemRepository packingItems;
     private final Clock clock;
+    private final ObjectMapper mapper;
 
     public TourServiceImpl(TourRepository tours, LocationRepository locations, TourLocationRepository tourLocations,
                            TourMediaRepository media, TourActivityRepository activities,
                            TourScheduleRepository schedules, TourAccessService access,
-                           TourEquipmentPackageRepository equipmentPackages, PackingItemRepository packingItems, Clock clock) {
+                           TourEquipmentPackageRepository equipmentPackages, PackingItemRepository packingItems,
+                           Clock clock, ObjectMapper mapper) {
         this.tours = tours;
         this.locations = locations;
         this.tourLocations = tourLocations;
@@ -59,6 +63,7 @@ public class TourServiceImpl implements TourService {
         this.equipmentPackages = equipmentPackages;
         this.packingItems = packingItems;
         this.clock = clock;
+        this.mapper = mapper;
     }
 
     @Override
@@ -112,7 +117,13 @@ public class TourServiceImpl implements TourService {
         return new TourDetailResponse(tourSummary, tour.getDescription(), tour.getRequiredExperience(),
                 tour.getIncludedServices(), tour.getExcludedServices(),
                 new TourCompanySummary(company.getId(), company.getName()), gallery, itinerary, publicSchedules,
-                tour.getRouteFileUrl(), policy, packing, equipment, rating.averageTourRating(), rating.reviewCount());
+                tour.getRouteFileUrl(), policy, cancellationRefundRules(tour), packing, equipment,
+                rating.averageTourRating(), rating.reviewCount());
+    }
+
+    private List<CancellationRefundRuleDto> cancellationRefundRules(Tour tour) {
+        try { return mapper.readValue(tour.getCancellationRefundRules(), new TypeReference<>() {}); }
+        catch (Exception ignored) { return List.of(); }
     }
 
     @Override

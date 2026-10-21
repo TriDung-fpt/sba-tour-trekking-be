@@ -36,6 +36,9 @@ import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.OffsetDateTime;
+import java.time.Duration;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
@@ -54,15 +57,17 @@ public class PaymentOperationsServiceImpl implements PaymentOperationsService {
     private final AuditedIdempotency idempotency;
     private final CompanyStatementItemRepository statementItems;
     private final EntityManager entityManager;
+    private final ObjectMapper mapper;
 
     public PaymentOperationsServiceImpl(CustomerPaymentRepository payments, CustomerRefundRepository refunds,
             RefundRequestRepository requests, PaymentAttemptRepository attempts, BookingRepository bookings,
             TourScheduleRepository schedules, AuditedIdempotency idempotency,
-            CompanyStatementItemRepository statementItems, EntityManager entityManager) {
+            CompanyStatementItemRepository statementItems, EntityManager entityManager, ObjectMapper mapper) {
         this.payments = payments; this.refunds = refunds; this.requests = requests; this.attempts = attempts;
         this.bookings = bookings; this.schedules = schedules; this.idempotency = idempotency;
         this.statementItems = statementItems;
         this.entityManager = entityManager;
+        this.mapper = mapper;
     }
 
     @Override
@@ -142,10 +147,12 @@ public class PaymentOperationsServiceImpl implements PaymentOperationsService {
         if (statementItems.existsByBookingIdAndKind(bookingId, ItemKind.SALE))
             throw error(HttpStatus.CONFLICT, "REFUND_AFTER_SETTLEMENT", "This booking is already included in a partner statement; a refund adjustment workflow is required");
         long available = availableRefund(bookingId, null);
-        if (available <= 0) throw error(HttpStatus.CONFLICT, "NO_REFUNDABLE_PAYMENT", "There is no unreconciled payment amount to request");
+        long policyCeiling = policyRefundCeiling(booking);
+        long requestAmount = Math.min(available, policyCeiling);
+        if (requestAmount <= 0) throw error(HttpStatus.CONFLICT, "NO_REFUNDABLE_PAYMENT", "This cancellation is not eligible for a refund under the tour's policy");
         RefundRequest refundRequest = new RefundRequest();
         refundRequest.setBookingId(bookingId); refundRequest.setRequestedBy(customerId);
-        refundRequest.setReason(normalized.reason()); refundRequest.setRequestedAmountVnd(available);
+        refundRequest.setReason(normalized.reason()); refundRequest.setRequestedAmountVnd(requestAmount);
         refundRequest.setIdempotencyKey(key); refundRequest.setStatus(RefundStatus.REQUESTED);
         refundRequest = requests.saveAndFlush(refundRequest);
         audit(customerId, "CUSTOMER_REFUND_REQUESTED", "refund_request", refundRequest.getId(), normalized.reason(), key,
@@ -278,6 +285,35 @@ public class PaymentOperationsServiceImpl implements PaymentOperationsService {
     private long availableRefund(long bookingId, Long excludeRequestId) {
         return payments.acceptedTotal(bookingId) - refunds.refundedTotal(bookingId)
                 - requests.reservedAmount(bookingId, excludeRequestId);
+    }
+
+    private long policyRefundCeiling(Booking booking) {
+        long accepted = payments.acceptedTotal(booking.getId());
+        if (booking.getCancelledBy() != null) return accepted;
+        BigDecimal percent = new BigDecimal("100");
+        try {
+            JsonNode rules = mapper.readTree(booking.getPolicySnapshot()).path("refundRules");
+            if (rules.isArray() && !rules.isEmpty()) {
+                long daysLeft = Math.max(0, Duration.between(
+                        booking.getCancelledAt() == null ? OffsetDateTime.now() : booking.getCancelledAt(),
+                        booking.getSchedule().getStartsAt()).toDays());
+                int threshold = -1;
+                for (JsonNode rule : rules) {
+                    int candidate = rule.path("daysBeforeDeparture").asInt(-1);
+                    if (candidate >= 0 && candidate <= daysLeft && candidate > threshold) {
+                        threshold = candidate;
+                        percent = new BigDecimal(rule.path("refundPercent").asText("0"));
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+            // Existing bookings keep their legacy policy snapshot and admin review flow.
+        }
+        long totalRefundedAndReserved = refunds.refundedTotal(booking.getId())
+                + requests.reservedAmount(booking.getId(), null);
+        long policyAmount = BigDecimal.valueOf(accepted).multiply(percent)
+                .divide(new BigDecimal("100"), 0, RoundingMode.DOWN).longValue();
+        return Math.max(0, policyAmount - totalRefundedAndReserved);
     }
 
     private void lockStatementCompany(long companyId) {

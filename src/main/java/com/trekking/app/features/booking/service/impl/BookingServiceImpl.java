@@ -124,7 +124,8 @@ public class BookingServiceImpl implements BookingService {
         booking.setCompanyAgreementId(agreement == null ? null : agreement.getId());
         booking.setCancellationPolicyVersionId(policyId);
         booking.setPolicySnapshot(json(Map.of("policyVersionId", policyId, "title", policy.getPolicy().getTitle(),
-                "versionNumber", policy.getVersionNumber(), "content", policy.getContent())));
+                "versionNumber", policy.getVersionNumber(), "content", policy.getContent(),
+                "refundRules", parseJson(tour.getCancellationRefundRules()))));
         booking.setEquipmentSnapshot(json(Boolean.TRUE.equals(request.includesEquipment())
                 ? Map.of("includesEquipment", true, "unitFeeVnd", schedule.getEquipmentFeeVnd(),
                     "packageTitle", packageOption.orElseThrow().getTitle(),
@@ -177,6 +178,11 @@ public class BookingServiceImpl implements BookingService {
     private String json(Object value) {
         try { return mapper.writeValueAsString(value); }
         catch (Exception ex) { throw new IllegalStateException("Unable to serialize booking snapshot", ex); }
+    }
+
+    private Object parseJson(String value) {
+        try { return mapper.readTree(value == null || value.isBlank() ? "[]" : value); }
+        catch (Exception ex) { return List.of(); }
     }
 
     private String blankToNull(String value) { return value == null || value.isBlank() ? null : value.trim(); }

@@ -14,6 +14,7 @@ import org.springframework.data.domain.Page;
 public interface TourWorkflowService {
     Page<TourItem> partnerTours(long accountId, int page, int size, String status);
     List<CancellationPolicyVersion> cancellationPolicyVersions(long accountId);
+    CloudinaryUploadSignature imageUploadSignature(long accountId);
     TourDetail createTour(long accountId, TourWriteRequest request);
     TourDetail getPartnerTour(long accountId, long tourId);
     TourDetail patchTour(long accountId, long tourId, TourPatchRequest request);

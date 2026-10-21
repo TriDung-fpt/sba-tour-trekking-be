@@ -9,5 +9,6 @@ public record TourDetail(long id, long companyId, String title, String descripti
                              String difficulty, Integer durationDays, String requiredExperience,
                              String includedServices, String excludedServices, String routeFileUrl,
                              Long cancellationPolicyVersionId, String reviewNote, List<Long> locationIds,
+                             List<CancellationRefundRuleDto> cancellationRefundRules,
                              List<TourManagementMedia> media, List<TourManagementActivity> itinerary, List<TourManagementPacking> packingList,
                              List<TourManagementEquipment> equipmentOptions, List<TourManagementSchedule> schedules) {}

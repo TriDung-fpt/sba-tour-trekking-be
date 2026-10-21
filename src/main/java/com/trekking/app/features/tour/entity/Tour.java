@@ -7,6 +7,8 @@ import com.trekking.app.features.company.entity.PolicyVersion;
 import com.trekking.app.features.tour.enums.DifficultyLevel;
 import com.trekking.app.features.tour.enums.TourStatus;
 import jakarta.persistence.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import java.time.OffsetDateTime;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -60,6 +62,10 @@ public class Tour extends TimestampedEntity {
 
     @Column(name = "cancellation_policy_version_id")
     private Long cancellationPolicyVersionId;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "cancellation_refund_rules", nullable = false, columnDefinition = "jsonb")
+    private String cancellationRefundRules = "[]";
 
     @Column(name = "reviewed_by")
     private Long reviewedBy;

@@ -9,5 +9,6 @@ public record TourDetailResponse(TourSummary summary, String description, String
                                  String includedServices, String excludedServices, TourCompanySummary company,
                                  List<TourGalleryMedia> gallery, List<TourItineraryActivity> itinerary, List<TourPublicSchedule> schedules,
                                  String routeFileUrl, TourPolicySummary cancellationPolicy,
+                                 List<CancellationRefundRuleDto> cancellationRefundRules,
                                  List<TourPackingItem> packingList, TourEquipmentDetails equipment,
                                  BigDecimal averageTourRating, long reviewCount) {}

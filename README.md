@@ -83,9 +83,9 @@ npm run build
 ## Database and migrations
 
 - `schema/schema.sql` is the bootstrap schema for a new local PostgreSQL volume. Docker runs it only when creating a fresh volume.
-- Flyway records that existing schema as baseline version `0`, then automatically applies pending migrations when the backend starts. The current migration is `src/main/resources/db/migration/V1__partner_applications.sql`.
+- Flyway records that existing schema as baseline version `0`, then automatically applies pending migrations when the backend starts. Current migrations are listed in [`docs/DB_MIGRATIONS.md`](docs/DB_MIGRATIONS.md), including `V2__tour_refund_rules.sql`.
 - Do not manually run Flyway migrations, change a migration after it has been applied, or edit `schema/schema.sql` to update an existing database.
-- Migration versions are sequential. The next unassigned version is `V2`; only the integration coordinator assigns it. Parallel agents put unnumbered drafts under `schema/migration-drafts/` until the coordinator approves and numbers them.
+- Migration versions are sequential. The next unassigned version is `V3`; only the integration coordinator assigns it. Parallel agents put unnumbered drafts under `schema/migration-drafts/` until the coordinator approves and numbers them.
 - Full policy and version registry: [`docs/DB_MIGRATIONS.md`](docs/DB_MIGRATIONS.md).
 
 ## API and feature documentation

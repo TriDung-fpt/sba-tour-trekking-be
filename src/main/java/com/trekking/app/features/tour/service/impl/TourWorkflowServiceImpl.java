@@ -19,6 +19,8 @@ import com.trekking.app.features.tour.repository.*;
 import com.trekking.app.features.tour.service.TourAccessService;
 import com.trekking.app.features.tour.service.TourApiException;
 import com.trekking.app.features.tour.service.TourWorkflowService;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.util.*;
@@ -27,11 +29,16 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.Instant;
+import java.util.HexFormat;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.beans.factory.annotation.Value;
 
 @Service
 public class TourWorkflowServiceImpl implements TourWorkflowService {
@@ -48,17 +55,21 @@ public class TourWorkflowServiceImpl implements TourWorkflowService {
     private final ParticipantRepository participants;
     private final AuditLogRepository auditLogs;
     private final Clock clock;
+    private final ObjectMapper mapper;
+    @Value("${cloudinary.cloud-name:}") private String cloudinaryName;
+    @Value("${cloudinary.api-key:}") private String cloudinaryApiKey;
+    @Value("${cloudinary.api-secret:}") private String cloudinaryApiSecret;
 
     public TourWorkflowServiceImpl(TourRepository tours, TourAccessService access, TourLocationRepository tourLocations,
                                    LocationRepository locations, TourMediaRepository media,
                                    TourActivityRepository activities, PackingItemRepository packing,
                                    TourEquipmentPackageRepository equipmentPackages, TourScheduleRepository schedules,
                                    BookingRepository bookings, ParticipantRepository participants,
-                                   AuditLogRepository auditLogs, Clock clock) {
+                                   AuditLogRepository auditLogs, Clock clock, ObjectMapper mapper) {
         this.tours = tours; this.access = access; this.tourLocations = tourLocations; this.locations = locations;
         this.media = media; this.activities = activities; this.packing = packing; this.equipmentPackages = equipmentPackages;
         this.schedules = schedules; this.bookings = bookings; this.participants = participants;
-        this.auditLogs = auditLogs; this.clock = clock;
+        this.auditLogs = auditLogs; this.clock = clock; this.mapper = mapper;
     }
 
     @Override @Transactional(readOnly = true)
@@ -78,6 +89,23 @@ public class TourWorkflowServiceImpl implements TourWorkflowService {
     public List<CancellationPolicyVersion> cancellationPolicyVersions(long accountId) {
         long companyId = singleCompany(accountId);
         return access.cancellationPolicyVersions(companyId, OffsetDateTime.now(clock));
+    }
+
+    @Override @Transactional(readOnly = true)
+    public CloudinaryUploadSignature imageUploadSignature(long accountId) {
+        long companyId = singleCompany(accountId);
+        if (cloudinaryName.isBlank() || cloudinaryApiKey.isBlank() || cloudinaryApiSecret.isBlank())
+            throw error(HttpStatus.SERVICE_UNAVAILABLE, "IMAGE_STORAGE_NOT_CONFIGURED", "Image uploads are not configured");
+        long timestamp = Instant.now(clock).getEpochSecond();
+        String folder = "wetrek/tours/" + companyId;
+        String allowedFormats = "jpg,png,webp";
+        String toSign = "allowed_formats=" + allowedFormats + "&folder=" + folder + "&timestamp=" + timestamp + cloudinaryApiSecret;
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-1").digest(toSign.getBytes(StandardCharsets.UTF_8));
+            return new CloudinaryUploadSignature(cloudinaryName, cloudinaryApiKey, timestamp, folder, allowedFormats, HexFormat.of().formatHex(digest));
+        } catch (NoSuchAlgorithmException ex) {
+            throw new IllegalStateException("SHA-1 is unavailable", ex);
+        }
     }
 
     @Override @Transactional
@@ -118,9 +146,13 @@ public class TourWorkflowServiceImpl implements TourWorkflowService {
                 throw error(HttpStatus.BAD_REQUEST, "INVALID_POLICY", "Cancellation policy is not valid for this company");
             tour.setCancellationPolicyVersionId(request.cancellationPolicyVersionId());
         }
+        if (request.cancellationRefundRules() != null) {
+            tour.setCancellationRefundRules(writeCancellationRules(request.cancellationRefundRules()));
+        }
         boolean material = request.title() != null || request.description() != null || request.difficulty() != null
                 || request.durationDays() != null || request.requiredExperience() != null || request.includedServices() != null
                 || request.excludedServices() != null || request.routeFileUrl() != null || request.cancellationPolicyVersionId() != null
+                || request.cancellationRefundRules() != null
                 || request.locationIds() != null || request.itinerary() != null || request.media() != null || request.packingList() != null;
         tours.save(tour);
         replaceOptionalChildren(tourId, request.locationIds(), request.media(), request.itinerary(), request.packingList());
@@ -175,10 +207,17 @@ public class TourWorkflowServiceImpl implements TourWorkflowService {
         Tour tour = ownedTour(tourId, accountId, true);
         if (tour.getStatus() != TourStatus.DRAFT && tour.getStatus() != TourStatus.REJECTED)
             throw error(HttpStatus.CONFLICT, "TOUR_STATE", "Only draft or rejected tours can be submitted");
+        if (tour.getTitle() == null || tour.getTitle().isBlank() || tour.getDescription() == null || tour.getDescription().isBlank())
+            throw error(HttpStatus.CONFLICT, "TOUR_CONTENT_REQUIRED", "Add a title and description before submitting this tour");
         if (tour.getCancellationPolicyVersionId() == null || !access.validCancellationPolicy(tour.getCancellationPolicyVersionId(), tour.getCompanyId(), OffsetDateTime.now(clock)))
             throw error(HttpStatus.CONFLICT, "POLICY_REQUIRED", "A valid cancellation policy is required");
-        if (media.findAllByTourIdOrderByDisplayOrderAscIdAsc(tourId).isEmpty() || tourLocations.findAllByTourIdOrderByVisitOrderAsc(tourId).isEmpty())
-            throw error(HttpStatus.CONFLICT, "INCOMPLETE_TOUR", "Add at least one image and destination before submitting");
+        if (readCancellationRules(tour).isEmpty())
+            throw error(HttpStatus.CONFLICT, "REFUND_RULES_REQUIRED", "Configure at least one refund rule before submitting this tour");
+        var tourImages = media.findAllByTourIdOrderByDisplayOrderAscIdAsc(tourId);
+        if (tourImages.size() < 3 || tourImages.stream().anyMatch(image -> !image.getUrl().startsWith("https://res.cloudinary.com/")))
+            throw error(HttpStatus.CONFLICT, "TOUR_IMAGES_REQUIRED", "Add at least three Cloudinary-hosted tour photos before submitting");
+        if (tourLocations.findAllByTourIdOrderByVisitOrderAsc(tourId).isEmpty())
+            throw error(HttpStatus.CONFLICT, "TOUR_DESTINATIONS_REQUIRED", "Choose at least one destination on the route");
         tour.setStatus(TourStatus.PENDING); tour.setReviewedBy(null); tour.setReviewedAt(null); tour.setReviewNote(null);
         tours.save(tour); access.audit(accountId, "TOUR_SUBMITTED", tourId, null);
         return new ActionMessage("Tour submitted for review");
@@ -356,6 +395,8 @@ public class TourWorkflowServiceImpl implements TourWorkflowService {
         tour.setDifficulty(r.difficulty() == null ? null : DifficultyLevel.valueOf(r.difficulty().toUpperCase(Locale.ROOT)));
         tour.setDurationDays(r.durationDays()); tour.setRequiredExperience(r.requiredExperience());
         tour.setIncludedServices(r.includedServices()); tour.setExcludedServices(r.excludedServices()); tour.setRouteFileUrl(r.routeFileUrl());
+        if (r.cancellationRefundRules() != null)
+            tour.setCancellationRefundRules(writeCancellationRules(r.cancellationRefundRules()));
         if (r.cancellationPolicyVersionId() != null) {
             if (!access.validCancellationPolicy(r.cancellationPolicyVersionId(), tour.getCompanyId(), OffsetDateTime.now(clock)))
                 throw error(HttpStatus.BAD_REQUEST, "INVALID_POLICY", "Cancellation policy is not valid for this company");
@@ -400,7 +441,25 @@ public class TourWorkflowServiceImpl implements TourWorkflowService {
         var pack = packing.findAllByTourIdOrderByDisplayOrderAscIdAsc(t.getId()).stream().map(p -> new TourManagementPacking(p.getId(), p.getName(), Boolean.TRUE.equals(p.getIsRequired()), p.getNote(), p.getDisplayOrder())).toList();
         var equipment = equipmentPackages.findByTourId(t.getId()).map(e -> List.of(new TourManagementEquipment(t.getId(), e.getTitle(), e.getIncludedItems(), e.getSharedItems(), e.getPersonalItemsToBring(), null))).orElseGet(List::of);
         var scheduleItems = schedules.findAllByTourIdOrderByStartsAtAsc(t.getId()).stream().map(this::schedule).toList();
-        return new TourDetail(t.getId(), t.getCompanyId(), t.getTitle(), t.getDescription(), t.getStatus().getValue(), t.getDifficulty() == null ? null : t.getDifficulty().getValue(), t.getDurationDays(), t.getRequiredExperience(), t.getIncludedServices(), t.getExcludedServices(), t.getRouteFileUrl(), t.getCancellationPolicyVersionId(), t.getReviewNote(), locs, mediaItems, acts, pack, equipment, scheduleItems);
+        return new TourDetail(t.getId(), t.getCompanyId(), t.getTitle(), t.getDescription(), t.getStatus().getValue(), t.getDifficulty() == null ? null : t.getDifficulty().getValue(), t.getDurationDays(), t.getRequiredExperience(), t.getIncludedServices(), t.getExcludedServices(), t.getRouteFileUrl(), t.getCancellationPolicyVersionId(), t.getReviewNote(), locs, readCancellationRules(t), mediaItems, acts, pack, equipment, scheduleItems);
+    }
+    private String writeCancellationRules(List<CancellationRefundRuleRequest> rules) {
+        if (rules == null || rules.isEmpty() || rules.size() > 8
+                || rules.stream().anyMatch(rule -> rule == null || rule.refundPercent() == null)
+                || rules.stream().filter(rule -> rule.daysBeforeDeparture() == 0).count() != 1
+                || rules.stream().map(CancellationRefundRuleRequest::daysBeforeDeparture).distinct().count() != rules.size())
+            throw error(HttpStatus.BAD_REQUEST, "INVALID_REFUND_RULES", "Refund rules must contain unique day thresholds and a 0-day default");
+        var sorted = rules.stream().sorted(Comparator.comparingInt(CancellationRefundRuleRequest::daysBeforeDeparture).reversed()).toList();
+        for (int i = 1; i < sorted.size(); i++) {
+            if (sorted.get(i).refundPercent().compareTo(sorted.get(i - 1).refundPercent()) > 0)
+                throw error(HttpStatus.BAD_REQUEST, "INVALID_REFUND_RULES", "Refund percentage cannot increase closer to departure");
+        }
+        try { return mapper.writeValueAsString(sorted); }
+        catch (Exception ex) { throw error(HttpStatus.BAD_REQUEST, "INVALID_REFUND_RULES", "Refund rules could not be saved"); }
+    }
+    private List<CancellationRefundRuleDto> readCancellationRules(Tour tour) {
+        try { return mapper.readValue(tour.getCancellationRefundRules(), new TypeReference<>() {}); }
+        catch (Exception ex) { return List.of(); }
     }
     private TourItem item(Tour t) { return new TourItem(t.getId(), t.getCompanyId(), t.getTitle(), t.getStatus().getValue(), t.getDifficulty() == null ? null : t.getDifficulty().getValue(), t.getDurationDays(), t.getCreatedAt(), t.getUpdatedAt()); }
     private TourManagementSchedule schedule(TourSchedule s) {
