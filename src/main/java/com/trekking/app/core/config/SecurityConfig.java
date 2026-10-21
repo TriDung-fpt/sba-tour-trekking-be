@@ -13,6 +13,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
@@ -58,12 +59,15 @@ public class SecurityConfig {
                 .requestCache(c -> c.disable())
                 .formLogin(c -> c.disable()).httpBasic(c -> c.disable()).logout(c -> c.disable())
                 .cors(c -> c.configurationSource(corsConfigurationSource(properties)))
-                .csrf(c -> c.csrfTokenRepository(csrf).csrfTokenRequestHandler(csrfHandler)
+                        .csrf(c -> c.csrfTokenRepository(csrf).csrfTokenRequestHandler(csrfHandler)
                         .requireCsrfProtectionMatcher(r -> !List.of("GET", "HEAD", "OPTIONS", "TRACE").contains(r.getMethod())
-                                && r.getRequestURI().substring(r.getContextPath().length()).startsWith("/api/v1/auth/")))
+                                && (r.getRequestURI().substring(r.getContextPath().length()).startsWith("/api/v1/auth/")
+                                || r.getRequestURI().substring(r.getContextPath().length()).startsWith("/api/v1/partner-applications"))))
                 .authorizeHttpRequests(a -> a
                         .requestMatchers("/api/v1/auth/me").authenticated()
                         .requestMatchers("/api/v1/auth/**", "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html", "/error").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/partner-applications", "/api/v1/partner-applications/resend-activation", "/api/v1/partner-applications/activate").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/tours", "/api/v1/tours/**", "/api/v1/locations").permitAll()
                         .anyRequest().authenticated())
                 .exceptionHandling(e -> e.authenticationEntryPoint(errors).accessDeniedHandler(errors))
                 .oauth2ResourceServer(o -> o.jwt(j -> j.jwtAuthenticationConverter(converter))

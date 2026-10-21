@@ -19,6 +19,7 @@ import com.trekking.app.features.auth.service.OtpMailSender;
 import com.trekking.app.features.auth.enums.OtpPurpose;
 import com.trekking.app.features.auth.model.AuthSession;
 import com.trekking.app.features.auth.model.IssuedTokens;
+import com.trekking.app.features.company.service.CompanyApplicationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -39,12 +40,14 @@ public class AuthServiceImpl implements AuthService {
     private final JwtService jwt;
     private final SessionAccounts sessionAccounts;
     private final AuthProperties properties;
+    private final CompanyApplicationService companyApplications;
     private final Clock clock;
     private final String dummyHash;
 
     public AuthServiceImpl(AppAccountRepository accounts, AccountTransactions transactions, RedisAuthStore store,
                            AuthCrypto crypto, PasswordEncoder passwords, OtpMailSender mail, JwtService jwt,
-                           SessionAccounts sessionAccounts, AuthProperties properties, Clock clock) {
+                           SessionAccounts sessionAccounts, AuthProperties properties, Clock clock,
+                           CompanyApplicationService companyApplications) {
         this.accounts = accounts;
         this.transactions = transactions;
         this.store = store;
@@ -55,6 +58,7 @@ public class AuthServiceImpl implements AuthService {
         this.sessionAccounts = sessionAccounts;
         this.properties = properties;
         this.clock = clock;
+        this.companyApplications = companyApplications;
         dummyHash = passwords.encode(crypto.token());
     }
 
@@ -88,7 +92,7 @@ public class AuthServiceImpl implements AuthService {
         try { mail.send(email, code, purpose); }
         catch (MailException ex) {
             store.cancelOtp(email, purpose, hash);
-            log.warn("OTP email delivery failed; purpose={}", purpose);
+            log.warn("OTP email delivery failed; purpose={}", purpose, ex);
             if (reportFailure) throw new AuthException(HttpStatus.SERVICE_UNAVAILABLE, "MAIL_UNAVAILABLE",
                     "Account created but email delivery failed; request a new verification code later");
         }
@@ -103,6 +107,12 @@ public class AuthServiceImpl implements AuthService {
     public IssuedTokens login(AuthRequests.Login request, String ip) {
         store.checkLoginLimit(request.email(), ip);
         AppAccount account = accounts.findByEmail(request.email()).orElse(null);
+        if (account != null && account.getStatus() == AccountStatus.ACTIVE && account.getEmailVerifiedAt() == null
+                && companyApplications.hasUnverifiedPendingApplication(account.getId())) {
+            store.loginFailed(request.email(), ip);
+            throw new AuthException(HttpStatus.FORBIDDEN, "PARTNER_ACTIVATION_REQUIRED",
+                    "Activate your partner application email before signing in");
+        }
         boolean matches = request.password().getBytes(java.nio.charset.StandardCharsets.UTF_8).length <= 72
                 && passwords.matches(request.password(), account == null ? dummyHash : account.getPasswordHash());
         if (!matches || account == null) {

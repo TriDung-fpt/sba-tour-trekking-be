@@ -1,8 +1,15 @@
 # Authentication
 
-Auth uses the existing account entities and PostgreSQL tables. OTPs, refresh
-token hashes, rate limits and session metadata are stored in Redis. No database
-migration is required.
+## Partner applications
+
+Flyway applies versioned schema changes at startup. On an existing database created from `schema/schema.sql`, Flyway records that baseline as version `0`, then applies pending migrations. Do not manually run a Flyway migration or edit one after it has been applied. The partner application migration is `src/main/resources/db/migration/V1__partner_applications.sql`; it is safe if the earlier date-named preview SQL was already run manually. Configure `FRONTEND_URL` to the public frontend origin so activation emails return to the correct app. Partner application creates a customer account with a cryptographically random initial password that is never shown or emailed, plus a pending company and owner membership. Its one-time activation link expires after 24 hours, confirms the email and lets the applicant set their own password. They can then sign in with customer access and check application status while pending. No partner role is granted before approval; admin approval alone grants `company_manager`, while rejection leaves the applicant with customer access.
+
+The front end uses `GET /api/v1/auth/csrf` before public partner POST requests. `POST /api/v1/partner-applications/resend-activation` returns a generic response; do not use the response to infer whether an email is registered.
+
+Core authentication uses the existing account entities and PostgreSQL tables.
+OTPs, refresh token hashes, rate limits and session metadata are stored in Redis.
+The core auth flow needs no schema migration; partner applications use the Flyway
+migration described above.
 
 ## Local setup
 
@@ -22,7 +29,9 @@ loads `.env` from its working directory. Set two independent random secrets
 ```
 
 Set Gmail `MAIL_USERNAME`, `MAIL_PASSWORD` (an App Password, not the normal Gmail
-password) and `MAIL_FROM`. Enable two-step verification in the Gmail account to
+password) and `MAIL_FROM`. Legacy `EMAIL_SENDER` and `EMAIL_PASSWORD` are used only
+when the matching `MAIL_*` setting is omitted; an explicitly blank `MAIL_*` value
+overrides that fallback. Enable two-step verification in the Gmail account to
 create an App Password. Never commit these values. Use `AUTH_COOKIE_SECURE=false`
 only for local HTTP. Leave `AUTH_ALLOWED_ORIGINS` empty until there is a frontend;
 later set a comma-separated list of exact origins.
@@ -43,7 +52,7 @@ and internal ports, independently of host port mappings in `.env`.
 ## Request flow
 
 All endpoints below are under `/api/v1/auth`. Before POST requests, call
-`GET /csrf`, keep its `XSRF-TOKEN` cookie, and send the response's `token` in the
+`GET /csrf` before state-changing requests, including authenticated profile updates; keep its `XSRF-TOKEN` cookie, and send the response's `token` in the
 `X-XSRF-TOKEN` header. Keep cookies enabled in Postman. Swagger automatically
 calls `/csrf` before each auth POST and sends the returned token with its cookie;
 you can use Try it out / Execute immediately. `/csrf` requires no input parameters.
@@ -53,12 +62,13 @@ you can use Try it out / Execute immediately. `/csrf` requires no input paramete
 | POST /register | `{"email":"you@example.com","password":"StrongPassword123!","fullName":"Customer","phone":"0900000000"}` | 201; verification email |
 | POST /verify-email | `{"email":"you@example.com","otp":"123456"}` | 200 |
 | POST /resend-verification | `{"email":"you@example.com"}` | 202, generic message |
-| POST /login | `{"email":"you@example.com","password":"StrongPassword123!"}` | 200; access JWT and refresh cookie |
+| POST /login | `{"email":"you@example.com","password":"StrongPassword123!"}` | 200; access JWT and refresh cookie. An active, unverified account with a pending partner application returns 403 `PARTNER_ACTIVATION_REQUIRED` so the frontend can open the application notice; all other invalid credentials remain generic. |
 | POST /refresh | No body; refresh cookie | 200; new access JWT and refresh cookie |
 | POST /logout | No body; refresh cookie | 204; revoke session and clear cookie |
 | POST /forgot-password | `{"email":"you@example.com"}` | 202, generic message |
 | POST /reset-password | `{"email":"you@example.com","otp":"123456","newPassword":"NewPassword123!"}` | 200; all old sessions invalid |
-| GET /me | No body; `Authorization: Bearer <accessToken>` | 200; account and current roles |
+| GET /me | No body; `Authorization: Bearer <accessToken>` | 200; latest account profile and roles |
+| PUT /me | `{"fullName":"Nguyen Minh Anh","phone":"+84901234567"}`; bearer + CSRF | 200; updated account; email and roles remain read-only |
 
 Access responses contain `accessToken`, `tokenType`, `expiresIn` (seconds) and
 `account`. Refresh tokens are never included in JSON. Do not send an expired

@@ -9,6 +9,8 @@ import com.trekking.app.features.auth.dto.response.AuthResponse;
 import com.trekking.app.features.auth.dto.response.CsrfResponse;
 import com.trekking.app.features.auth.dto.response.MessageResponse;
 import com.trekking.app.features.auth.service.AuthService;
+import com.trekking.app.features.account.dto.request.UpdateAccountRequest;
+import com.trekking.app.features.account.service.AccountService;
 import com.trekking.app.features.auth.model.IssuedTokens;
 import com.trekking.app.features.auth.enums.OtpPurpose;
 import jakarta.servlet.http.HttpServletRequest;
@@ -31,11 +33,13 @@ public class AuthController {
     private final AuthService service;
     private final AuthProperties properties;
     private final Clock clock;
+    private final AccountService accounts;
 
-    public AuthController(AuthService service, AuthProperties properties, Clock clock) {
+    public AuthController(AuthService service, AuthProperties properties, Clock clock, AccountService accounts) {
         this.service = service;
         this.properties = properties;
         this.clock = clock;
+        this.accounts = accounts;
     }
 
     @PostMapping("/register")
@@ -97,7 +101,17 @@ public class AuthController {
 
     @GetMapping("/me")
     @io.swagger.v3.oas.annotations.security.SecurityRequirement(name = "bearerAuth")
-    public AccountResponse me(@AuthenticationPrincipal UserPrincipal principal) { return principal.account(); }
+    @io.swagger.v3.oas.annotations.Operation(summary = "Get the authenticated account profile")
+    public AccountResponse me(@AuthenticationPrincipal UserPrincipal principal) { return accounts.getById(principal.accountId()); }
+
+    @PutMapping("/me")
+    @io.swagger.v3.oas.annotations.security.SecurityRequirement(name = "bearerAuth")
+    @io.swagger.v3.oas.annotations.Operation(summary = "Update the authenticated account profile",
+            description = "Updates full name and phone. Email and roles are read-only.")
+    public AccountResponse updateMe(@AuthenticationPrincipal UserPrincipal principal,
+                                    @Valid @RequestBody UpdateAccountRequest request) {
+        return accounts.update(principal.accountId(), request);
+    }
 
     @GetMapping("/csrf")
     public CsrfResponse csrf(@io.swagger.v3.oas.annotations.Parameter(hidden = true) CsrfToken token) {

@@ -65,6 +65,23 @@ public class RedisAuthStore {
         }
     }
 
+    public void putPartnerActivation(String tokenHash, long accountId) {
+        execute(() -> {
+            redis.opsForValue().set(prefix + "partner-activation:" + tokenHash,
+                    Long.toString(accountId), java.time.Duration.ofHours(24));
+            return true;
+        });
+    }
+
+    public Long consumePartnerActivation(String tokenHash) {
+        var script = new DefaultRedisScript<String>();
+        script.setScriptText("local value = redis.call('GET', KEYS[1]); if value then redis.call('DEL', KEYS[1]); end; return value");
+        script.setResultType(String.class);
+        String accountId = execute(() -> redis.execute(script, List.of(prefix + "partner-activation:" + tokenHash)));
+        try { return accountId == null ? null : Long.valueOf(accountId); }
+        catch (NumberFormatException ex) { throw AuthException.unavailable(); }
+    }
+
     private String loginKey(String kind, String value) { return prefix + "login:" + kind + ":" + crypto.hmac(value); }
 
     public void checkLoginLimit(String email, String ip) {

@@ -8,6 +8,7 @@ import com.trekking.app.features.auth.repository.RedisAuthStore;
 import com.trekking.app.features.auth.service.AuthService;
 import com.trekking.app.features.auth.service.OtpMailSender;
 import com.trekking.app.features.auth.enums.OtpPurpose;
+import com.trekking.app.features.company.service.CompanyApplicationMailSender;
 import jakarta.servlet.http.Cookie;
 import java.time.Duration;
 import java.time.Instant;
@@ -25,6 +26,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mail.MailSendException;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.*;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -51,9 +53,12 @@ class AuthIntegrationTests extends AuthTestInfrastructure {
     @Autowired AuthCrypto crypto;
     @Autowired AuthProperties properties;
     @Autowired JwtEncoder encoder;
+    @Autowired PasswordEncoder passwordEncoder;
     @MockitoBean
     OtpMailSender mail;
+    @MockitoBean CompanyApplicationMailSender partnerMail;
     private final Map<String, String> codes = new ConcurrentHashMap<>();
+    private String activationUrl;
 
     @BeforeEach
     void resetData() {
@@ -62,8 +67,11 @@ class AuthIntegrationTests extends AuthTestInfrastructure {
         var keys = redis.keys("auth-test:*");
         if (keys != null && !keys.isEmpty()) redis.delete(keys);
         codes.clear();
+        activationUrl = null;
         doAnswer(inv -> { codes.put(inv.getArgument(0) + ":" + inv.getArgument(2), inv.getArgument(1)); return null; })
                 .when(mail).send(anyString(), anyString(), any());
+        doAnswer(inv -> { activationUrl = inv.getArgument(1); return null; })
+                .when(partnerMail).sendActivation(anyString(), anyString());
     }
 
     @Test
@@ -87,6 +95,60 @@ class AuthIntegrationTests extends AuthTestInfrastructure {
                 .andExpect(jsonPath("$.roles[0]").value("customer"));
         postJson("/register", Map.of("email", EMAIL.toUpperCase(), "password", PASSWORD, "fullName", "Duplicate"))
                 .andExpect(status().isConflict());
+    }
+
+    @Test
+    void partnerApplicationMustActivateAndWaitForAdminApproval() throws Exception {
+        assertThat(jdbc.queryForObject("select count(*) from trekking.flyway_schema_history where version='1'", Integer.class)).isEqualTo(1);
+        mvc.perform(post("/api/v1/partner-applications").with(realCsrf()).contentType("application/json")
+                        .content(json.writeValueAsString(Map.of("email", "partner@example.invalid", "contactName", "Nguyễn Minh Anh",
+                                "phone", "+84901234567", "businessName", "Đường Mòn Việt", "taxCode", "0123456789",
+                                "businessType", "company", "foundedYear", 2020, "tourRegions", List.of("fansipan"),
+                                "safetyRulesAccepted", true))))
+                .andExpect(status().isAccepted());
+        assertThat(activationUrl).contains("partnerActivation=");
+        assertThat(jdbc.queryForObject("select count(*) from trekking.account_roles where role='company_manager'", Integer.class)).isZero();
+        String token = java.util.regex.Pattern.compile("partnerActivation=([^&]+)").matcher(activationUrl).results()
+                .findFirst().orElseThrow().group(1);
+        mvc.perform(post("/api/v1/partner-applications/activate").with(realCsrf()).contentType("application/json")
+                        .content(json.writeValueAsString(Map.of("token", token, "password", "PartnerPassword123!"))))
+                .andExpect(status().isOk());
+        mvc.perform(post("/api/v1/partner-applications/activate").with(realCsrf()).contentType("application/json")
+                        .content(json.writeValueAsString(Map.of("token", token, "password", "PartnerPassword123!"))))
+                .andExpect(status().isBadRequest());
+
+        var applicantLogin = postJson("/login", Map.of("email", "partner@example.invalid", "password", "PartnerPassword123!"))
+                .andExpect(status().isOk()).andReturn();
+        String applicantToken = access(applicantLogin);
+        mvc.perform(get("/api/v1/partner-applications/me").header("Authorization", "Bearer " + applicantToken))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("pending"));
+
+        jdbc.update("insert into trekking.app_accounts(email,password_hash,full_name,email_verified_at) values(?,?,?,now())",
+                "admin@example.invalid", passwordEncoder.encode("AdminPassword123!"), "Test Admin");
+        long adminId = jdbc.queryForObject("select id from trekking.app_accounts where email='admin@example.invalid'", Long.class);
+        jdbc.update("insert into trekking.account_roles(account_id,role) values (?, 'admin')", adminId);
+        String adminToken = access(postJson("/login", Map.of("email", "admin@example.invalid", "password", "AdminPassword123!"))
+                .andExpect(status().isOk()).andReturn());
+        long companyId = jdbc.queryForObject("select id from trekking.companies where tax_code='0123456789'", Long.class);
+        mvc.perform(post("/api/v1/admin/partner-applications/{id}/approve", companyId)
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("approved"));
+        assertThat(jdbc.queryForObject("select count(*) from trekking.account_roles where role='company_manager'", Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    void profileCanBeUpdatedAndMeReturnsFreshDataForSameToken() throws Exception {
+        registerVerified(true);
+        var login = login();
+        String bearer = "Bearer " + access(login);
+        mvc.perform(put("/api/v1/auth/me").with(realCsrf()).header("Authorization", bearer)
+                        .contentType("application/json").content(json.writeValueAsString(
+                                Map.of("fullName", "Updated Customer", "phone", "+84901234567"))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.fullName").value("Updated Customer"))
+                .andExpect(jsonPath("$.phone").value("+84901234567")).andExpect(jsonPath("$.email").value(EMAIL));
+        mvc.perform(get("/api/v1/auth/me").header("Authorization", bearer))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.fullName").value("Updated Customer"))
+                .andExpect(jsonPath("$.phone").value("+84901234567"));
     }
 
     @Test
