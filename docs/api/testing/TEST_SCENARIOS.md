@@ -2,6 +2,9 @@
 
 [Tài liệu API tiếng Việt](../../API_DOCS_VI.md) · [Danh sách từng request và kết quả kỳ vọng](CASE_INDEX.md)
 
+Xem [hướng dẫn cấu hình backend và biến Apidog](ENV_SETUP_VI.md) trước khi chạy lần đầu;
+[bộ file mẫu](fixtures/TEST_FILES.md) gồm giấy phép PDF/PNG và JSON chính sách dùng tại CO-15/POL-07.
+
 Bộ test dành cho backend Docker local, bao phủ 41 thao tác API hiện có cùng các tình huống thành công, validation, xác thực, phân quyền và chuyển trạng thái. Mỗi request có URL, JSON body và script kiểm tra kết quả trong [collection](Trekking.postman_collection.json). File [environment local](Trekking.local.postman_environment.json) chứa các biến để bạn điền.
 
 Đây là kịch bản để bạn chạy thử. Việc kiểm tra cấu trúc collection không đồng nghĩa đã chạy thành công toàn bộ nghiệp vụ trên Docker hoặc đã thử import thực tế vào Apidog. Đăng ký, gửi OTP, tạo công ty, mời nhân viên và duyệt hồ sơ sẽ thay đổi dữ liệu khi bạn bấm Send.

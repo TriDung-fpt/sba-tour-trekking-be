@@ -15,6 +15,7 @@ ví dụ `GET /companies` để xem danh sách và `POST /companies` để tạo
 | [OpenAPI JSON đã xuất](api/openapi.json) | Bản mô tả máy đọc được, có thể import vào Postman hoặc công cụ hỗ trợ OpenAPI. |
 | [Swagger đang chạy](http://localhost:8080/swagger-ui/index.html) | Xem schema và dùng **Try it out → Execute** để gọi API. |
 | [Kịch bản test và file import Apidog](api/testing/TEST_SCENARIOS.md) | Chạy 106 request theo luồng, nhập OTP đúng bước và kiểm tra kết quả tự động. |
+| [Cấu hình backend và environment Apidog](api/testing/ENV_SETUP_VI.md) | Điền SMTP, Google và tài khoản test; phân biệt biến nhập tay với token/ID tự lưu. |
 
 Mỗi nhóm có **method + URL, mục đích, quyền gọi, request, response, HTTP status,
 ràng buộc dữ liệu và lỗi**. Ví dụ dùng dữ liệu giả; ID, OTP, token, thời gian và
