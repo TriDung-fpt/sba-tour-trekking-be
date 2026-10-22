@@ -2,6 +2,8 @@
 
 The backend uses Flyway versioned SQL migrations from `src/main/resources/db/migration`. Flyway applies pending migrations during backend startup and records checksums in `flyway_schema_history`. Hibernate remains in `validate` mode. The existing `schema/schema.sql` is the baseline for a new local database; on existing non-empty databases Flyway records that baseline as version `0` before applying pending migrations.
 
+`schema/migrations/001` through `004` are separately managed PostgreSQL bootstrap/upgrade scripts, not Flyway migrations. Docker Compose mounts them as PostgreSQL first-initialization scripts for a fresh volume; they do not rerun when a volume already exists. Existing databases must follow the one-time commands in `docs/AUTH.md`. Do not copy these scripts into Flyway or run them manually on a fresh Compose database.
+
 ## Version allocation and agent coordination
 
 - Migration versions are sequential integers: `V1__name.sql`, `V2__name.sql`, and so on. Do not use dates, timestamps, branch names, or guessed numbers.
