@@ -414,11 +414,13 @@ public class TourWorkflowServiceImpl implements TourWorkflowService {
             if (new HashSet<>(locationIds).size() != locationIds.size() || locations.findAllById(locationIds).size() != locationIds.size())
                 throw error(HttpStatus.BAD_REQUEST, "INVALID_LOCATIONS", "One or more locations are invalid");
             tourLocations.deleteAllByTourId(tourId);
+            tourLocations.flush();
             for (int i = 0; i < locationIds.size(); i++) { TourLocation link = new TourLocation(); link.setTourId(tourId); link.setLocationId(locationIds.get(i)); link.setVisitOrder(i + 1); tourLocations.save(link); }
         }
         if (mediaItems != null) {
             if (mediaItems.stream().filter(MediaItem::cover).count() > 1) throw error(HttpStatus.BAD_REQUEST, "INVALID_MEDIA", "Only one cover image is allowed");
             media.deleteAllByTourId(tourId);
+            media.flush();
             for (var item : mediaItems) { TourMedia e = new TourMedia(); e.setTourId(tourId); e.setUrl(item.url()); e.setCaption(item.caption()); e.setDisplayOrder(item.displayOrder()); e.setIsCover(item.cover()); e.setMediaType(parseMediaType(item.mediaType())); media.save(e); }
         }
         if (activityItems != null) {
@@ -426,10 +428,12 @@ public class TourWorkflowServiceImpl implements TourWorkflowService {
             if (locations.findAllById(activityLocationIds).size() != activityLocationIds.size())
                 throw error(HttpStatus.BAD_REQUEST, "INVALID_LOCATIONS", "One or more itinerary locations are invalid");
             activities.deleteAllByTourId(tourId);
+            activities.flush();
             for (var item : activityItems) { TourActivity e = new TourActivity(); e.setTourId(tourId); e.setDayNumber(item.dayNumber()); e.setDisplayOrder(item.displayOrder()); e.setTitle(item.title()); e.setDescription(item.description()); e.setStartTime(item.startTime()); e.setLocationId(item.locationId()); activities.save(e); }
         }
         if (packingItems != null) {
             packing.deleteAllByTourId(tourId);
+            packing.flush();
             for (var item : packingItems) { com.trekking.app.features.tour.entity.PackingItem e = new com.trekking.app.features.tour.entity.PackingItem(); e.setTourId(tourId); e.setName(item.name()); e.setIsRequired(item.required()); e.setNote(item.note()); e.setDisplayOrder(item.displayOrder()); packing.save(e); }
         }
     }
