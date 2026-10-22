@@ -17,6 +17,14 @@ public abstract class AuthTestInfrastructure {
             .withEnv("POSTGRES_USER", "auth_test").withEnv("POSTGRES_PASSWORD", "auth_test")
             .withEnv("POSTGRES_DB", "auth_test").withExposedPorts(5432)
             .withCopyFileToContainer(MountableFile.forHostPath(Path.of("schema/schema.sql")), "/docker-entrypoint-initdb.d/schema.sql")
+            .withCopyFileToContainer(MountableFile.forHostPath(Path.of("schema/migrations/001_add_google_subject.sql")),
+                    "/docker-entrypoint-initdb.d/zz_google_auth.sql")
+            .withCopyFileToContainer(MountableFile.forHostPath(Path.of("schema/migrations/002_add_account_session_version.sql")),
+                    "/docker-entrypoint-initdb.d/zzz_account_session_version.sql")
+            .withCopyFileToContainer(MountableFile.forHostPath(Path.of("schema/migrations/003_add_cooperation_policy_terms.sql")),
+                    "/docker-entrypoint-initdb.d/zzzz_policy_agreement_terms.sql")
+            .withCopyFileToContainer(MountableFile.forHostPath(Path.of("schema/migrations/004_add_financial_permissions.sql")),
+                    "/docker-entrypoint-initdb.d/zzzzz_financial_permissions.sql")
             .waitingFor(Wait.forLogMessage(".*database system is ready to accept connections.*\\n", 2))
             .withStartupTimeout(Duration.ofMinutes(2));
     static final GenericContainer<?> REDIS = new GenericContainer<>(DockerImageName.parse("redis:8.2-alpine"))
@@ -43,5 +51,6 @@ public abstract class AuthTestInfrastructure {
         registry.add("app.auth.allowed-origins", () -> "http://localhost:5173");
         registry.add("app.auth.redis-prefix", () -> "auth-test:");
         registry.add("app.auth.mail-from", () -> "test@example.invalid");
+        registry.add("app.auth.google.client-ids", () -> "");
     }
 }

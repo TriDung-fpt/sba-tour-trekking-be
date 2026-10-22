@@ -5,11 +5,10 @@ import com.trekking.app.core.security.AuthCrypto;
 import com.trekking.app.features.auth.dto.request.AuthRequests;
 import com.trekking.app.features.account.entity.AccountRole;
 import com.trekking.app.features.account.entity.AppAccount;
-import com.trekking.app.features.account.enums.AccountStatus;
 import com.trekking.app.features.account.enums.RoleType;
 import com.trekking.app.features.account.repository.AccountRoleRepository;
 import com.trekking.app.features.account.repository.AppAccountRepository;
-import com.trekking.app.features.auth.repository.RedisAuthStore;
+import com.trekking.app.features.auth.validation.AuthValidation;
 import java.time.Clock;
 import java.time.OffsetDateTime;
 
@@ -24,18 +23,18 @@ public class AccountTransactions {
     private final AppAccountRepository accounts;
     private final AccountRoleRepository roles;
     private final PasswordEncoder passwords;
-    private final RedisAuthStore store;
     private final AuthCrypto crypto;
     private final Clock clock;
+    private final AuthValidation validation;
 
     public AccountTransactions(AppAccountRepository accounts, AccountRoleRepository roles, PasswordEncoder passwords,
-                               RedisAuthStore store, AuthCrypto crypto, Clock clock) {
+                               AuthCrypto crypto, Clock clock, AuthValidation validation) {
         this.accounts = accounts;
         this.roles = roles;
         this.passwords = passwords;
-        this.store = store;
         this.crypto = crypto;
         this.clock = clock;
+        this.validation = validation;
     }
 
     @Transactional
@@ -69,21 +68,20 @@ public class AccountTransactions {
     @Transactional
     public void verify(String email, String otp) {
         AppAccount account = eligible(email);
-        store.consumeOtp(email, OtpPurpose.VERIFY_EMAIL, otpHash(email, OtpPurpose.VERIFY_EMAIL, otp), context(account));
+        validation.consumeOtp(email, OtpPurpose.VERIFY_EMAIL, otpHash(email, OtpPurpose.VERIFY_EMAIL, otp), context(account));
         if (account.getEmailVerifiedAt() == null) account.setEmailVerifiedAt(OffsetDateTime.now(clock));
     }
 
     @Transactional
     public void reset(String email, String otp, String newPassword) {
         AppAccount account = eligible(email);
-        store.consumeOtp(email, OtpPurpose.RESET_PASSWORD, otpHash(email, OtpPurpose.RESET_PASSWORD, otp), context(account));
+        validation.consumeOtp(email, OtpPurpose.RESET_PASSWORD, otpHash(email, OtpPurpose.RESET_PASSWORD, otp), context(account));
         account.setPasswordHash(passwords.encode(newPassword));
         account.setMustChangePassword(false);
         accounts.flush();
     }
 
     private AppAccount eligible(String email) {
-        return accounts.lockByEmail(email).filter(a -> a.getStatus() == AccountStatus.ACTIVE)
-                .orElseThrow(() -> new AuthException(HttpStatus.BAD_REQUEST, "INVALID_OTP", "OTP is invalid or expired"));
+        return validation.validateOtpAccount(accounts.lockByEmail(email).orElse(null));
     }
 }

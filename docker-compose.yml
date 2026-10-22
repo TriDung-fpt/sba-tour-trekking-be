@@ -8,6 +8,9 @@ services:
       DB_PORT: 5432
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      COMPANY_LICENSE_DIRECTORY: /app/company-licenses
+    volumes:
+      - company_licenses:/app/company-licenses
     ports:
       - "127.0.0.1:${BACKEND_PORT:-8080}:8080"
     depends_on:
@@ -35,7 +38,7 @@ services:
       timeout: 3s
       retries: 5
   postgres:
-    image: postgres:latest
+    image: postgres:18.6
     container_name: trekking-postgres
     restart: unless-stopped
     ports:
@@ -47,6 +50,10 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql
       - ./schema/schema.sql:/docker-entrypoint-initdb.d/01_init_schema.sql:ro
+      - ./schema/migrations/001_add_google_subject.sql:/docker-entrypoint-initdb.d/02_google_auth.sql:ro
+      - ./schema/migrations/002_add_account_session_version.sql:/docker-entrypoint-initdb.d/03_account_session_version.sql:ro
+      - ./schema/migrations/003_add_cooperation_policy_terms.sql:/docker-entrypoint-initdb.d/04_cooperation_policy_terms.sql:ro
+      - ./schema/migrations/004_add_financial_permissions.sql:/docker-entrypoint-initdb.d/05_financial_permissions.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 5s
@@ -54,6 +61,7 @@ services:
       retries: 10
 
 volumes:
+  company_licenses:
   redis_data:
   postgres_data:
     driver: local

@@ -1,0 +1,9 @@
+CHÍNH SÁCH HỢP TÁC THỬ NGHIỆM - KHÔNG CÓ GIÁ TRỊ PHÁP LÝ
+
+1. Phạm vi: Công ty mẫu cung cấp dịch vụ trekking giả lập trong môi trường local. Tất cả thông tin, hồ sơ và giao dịch trong bài thử chỉ phục vụ kiểm tra API.
+2. Trách nhiệm: Người quản lý công ty kiểm tra hồ sơ mẫu, tải giấy phép thử nghiệm và đọc phiên bản chính sách trước khi chấp nhận. Admin duyệt hồ sơ theo kịch bản kiểm thử.
+3. Phí nền tảng: 10% theo trường platformFeePercent của phiên bản chính sách. Giá trị trong API là nguồn dữ liệu kiểm tra; nội dung văn bản phải nhất quán với giá trị này.
+4. Đối soát: Thời gian chờ 48 giờ theo payoutWaitHours. Chi tiết tại payoutTermsSnapshot của cùng phiên bản chính sách.
+5. Xác nhận: Chủ công ty yêu cầu OTP và nhập OTP mới nhất nhận được qua email để chấp nhận chính sách. Không ghi OTP vào tài liệu này.
+6. Bằng chứng: Sau khi ký, kiểm tra agreement receipt lưu đúng policyVersionId, phí 10%, thời gian chờ 48 giờ và bản chụp nội dung chính sách.
+7. Giới hạn: Đây là nội dung thử nghiệm, không tạo hợp đồng, nghĩa vụ thanh toán hay giấy phép kinh doanh thực tế.

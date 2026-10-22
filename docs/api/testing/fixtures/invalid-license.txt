@@ -1,0 +1,5 @@
+INVALID UPLOAD TEST FIXTURE - NOT A PDF, PNG OR JPEG
+This is an ordinary UTF-8 text file for a negative upload check.
+Select this .txt file as multipart form-data field `file` on a disposable pending company.
+Expected: HTTP 400, error code INVALID_COMPANY_LICENSE.
+Do not rename this file to .pdf or overwrite a valid upload test fixture.
