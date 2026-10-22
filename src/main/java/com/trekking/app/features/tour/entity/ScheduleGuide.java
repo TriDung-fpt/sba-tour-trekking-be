@@ -1,7 +1,7 @@
 package com.trekking.app.features.tour.entity;
 
 import com.trekking.app.core.common.entity.TimestampedEntity;
-import com.trekking.app.features.company.entity.Guide;
+import com.trekking.app.features.account.entity.Guide;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -24,25 +24,16 @@ public class ScheduleGuide extends TimestampedEntity {
     @Column(name = "guide_id", nullable = false)
     private Long guideId;
 
-    @Column(name = "company_id", nullable = false)
-    private Long companyId;
-
     @Column(name = "is_lead", nullable = false)
     private Boolean isLead = false;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumns({
-        @JoinColumn(name = "schedule_id", referencedColumnName = "id", insertable = false, updatable = false),
-        @JoinColumn(name = "company_id", referencedColumnName = "company_id", insertable = false, updatable = false)
-    })
+    @JoinColumn(name = "schedule_id", referencedColumnName = "id", insertable = false, updatable = false)
     @Setter(AccessLevel.NONE)
     private TourSchedule schedule;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumns({
-        @JoinColumn(name = "guide_id", referencedColumnName = "id", insertable = false, updatable = false),
-        @JoinColumn(name = "company_id", referencedColumnName = "company_id", insertable = false, updatable = false)
-    })
+    @JoinColumn(name = "guide_id", referencedColumnName = "id", insertable = false, updatable = false)
     @Setter(AccessLevel.NONE)
     private Guide guide;
 }

@@ -8,7 +8,6 @@ public interface AuthorizationService {
     long currentAccountId();
     Set<RoleType> currentRoles();
     void require(Permission permission);
-    void requireCompany(Permission permission, long companyId);
     void requireGuideSchedule(long scheduleId);
     AuthorizationResponse authorization();
 }

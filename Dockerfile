@@ -7,7 +7,6 @@ RUN --mount=type=cache,target=/root/.m2 mvn -B -DskipTests package
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 RUN addgroup -S -g 10001 trekking && adduser -S -u 10001 -G trekking trekking
-RUN mkdir -p /app/company-licenses && chown trekking:trekking /app/company-licenses
 COPY --from=build --chown=trekking:trekking /workspace/target/treeking-0.0.1-SNAPSHOT.jar app.jar
 USER trekking
 EXPOSE 8080

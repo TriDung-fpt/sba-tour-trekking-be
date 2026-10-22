@@ -9,6 +9,10 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface AppAccountRepository extends JpaRepository<AppAccount, Long> {
+    // Serialize administrative revocations before locking individual actors/targets.
+    @Query(value = "select 1 from pg_advisory_xact_lock(72630401)", nativeQuery = true)
+    Integer serializeAdministration();
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select a from AppAccount a where a.id = :id")
     Optional<AppAccount> lockById(@Param("id") Long id);

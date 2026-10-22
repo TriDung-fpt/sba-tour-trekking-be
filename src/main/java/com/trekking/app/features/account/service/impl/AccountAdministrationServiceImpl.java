@@ -15,6 +15,8 @@ import com.trekking.app.features.account.repository.AccountRoleRepository;
 import com.trekking.app.features.account.repository.AppAccountRepository;
 import com.trekking.app.features.account.service.audit.AccountAuditState;
 import com.trekking.app.features.account.service.audit.AuditWriter;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
@@ -25,20 +27,21 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class AccountAdministrationServiceImpl implements AccountAdministrationService {
-    private static final Set<RoleType> ASSIGNABLE = EnumSet.of(RoleType.CUSTOMER, RoleType.COMPANY_MANAGER,
-            RoleType.GUIDE, RoleType.SUPPORT_STAFF, RoleType.CONTENT_STAFF, RoleType.ACCOUNTANT);
+    private static final Set<RoleType> ASSIGNABLE = EnumSet.of(RoleType.CUSTOMER, RoleType.GUIDE);
 
     private final AppAccountRepository accounts;
     private final AccountRoleRepository roles;
     private final AuthorizationService authorization;
     private final AuditWriter audits;
+    private final EntityManager entities;
 
     public AccountAdministrationServiceImpl(AppAccountRepository accounts, AccountRoleRepository roles,
-                                        AuthorizationService authorization, AuditWriter audits) {
+                                        AuthorizationService authorization, AuditWriter audits, EntityManager entities) {
         this.accounts = accounts;
         this.roles = roles;
         this.authorization = authorization;
         this.audits = audits;
+        this.entities = entities;
     }
 
     @Transactional(readOnly = true)
@@ -50,11 +53,10 @@ public class AccountAdministrationServiceImpl implements AccountAdministrationSe
 
     @Transactional
     public AdminAccountResponse block(Long id, String inputReason) {
-        authorization.require(Permission.ACCOUNT_BLOCK);
+        requireMutation(Permission.ACCOUNT_BLOCK);
         String reason = reason(inputReason);
         AppAccount account = mutableAccount(id);
         var accountRoles = roles.findAllByAccountId(id);
-        protectAdmin(accountRoles);
         requireStatus(account, AccountStatus.ACTIVE);
         var names = roleNames(accountRoles);
         var before = state(account, names);
@@ -70,11 +72,10 @@ public class AccountAdministrationServiceImpl implements AccountAdministrationSe
 
     @Transactional
     public AdminAccountResponse unblock(Long id, String inputReason) {
-        authorization.require(Permission.ACCOUNT_BLOCK);
+        requireMutation(Permission.ACCOUNT_BLOCK);
         String reason = reason(inputReason);
         AppAccount account = mutableAccount(id);
         var accountRoles = roles.findAllByAccountId(id);
-        protectAdmin(accountRoles);
         requireStatus(account, AccountStatus.BLOCKED);
         var names = roleNames(accountRoles);
         var before = state(account, names);
@@ -88,12 +89,11 @@ public class AccountAdministrationServiceImpl implements AccountAdministrationSe
 
     @Transactional
     public AdminAccountResponse replaceRoles(Long id, AccountAdministrationRequests.Roles request) {
-        authorization.require(Permission.ACCOUNT_ROLES_WRITE);
+        requireMutation(Permission.ACCOUNT_ROLES_WRITE);
         String reason = reason(request.reason());
         Set<RoleType> requested = parseRoles(request.roles());
         AppAccount account = mutableAccount(id);
         var existing = roles.findAllByAccountId(id);
-        protectAdmin(existing);
         var before = state(account, roleNames(existing));
         var removed = existing.stream().filter(role -> !requested.contains(role.getRole())).toList();
         roles.deleteAll(removed);
@@ -121,11 +121,14 @@ public class AccountAdministrationServiceImpl implements AccountAdministrationSe
         return accounts.lockById(id).orElseThrow(AccountAdministrationServiceImpl::notFound);
     }
 
-    private static void protectAdmin(List<AccountRole> accountRoles) {
-        if (accountRoles.stream().anyMatch(role -> role.getRole() == RoleType.ADMIN)) {
-            throw new AuthException(HttpStatus.FORBIDDEN, "ADMIN_ACCOUNT_PROTECTED",
-                    "Administrator accounts cannot be changed through this endpoint");
-        }
+    private void requireMutation(Permission permission) {
+        long actorId = authorization.currentAccountId();
+        accounts.serializeAdministration();
+        var actor = accounts.findById(actorId).orElseThrow(AuthException::invalidSession);
+        // Recheck after waiting: another admin may have blocked or demoted this caller.
+        entities.refresh(actor, LockModeType.PESSIMISTIC_WRITE);
+        authorization.require(permission);
+        // Self-mutation remains forbidden, so the active calling admin is preserved.
     }
 
     private static void requireStatus(AppAccount account, AccountStatus expected) {

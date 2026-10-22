@@ -26,11 +26,11 @@ public class InvitationController {
         return invitations.inviteStaff(request);
     }
 
-    @PostMapping("/api/v1/companies/{companyId}/guides/invitations")
+    @PostMapping("/api/v1/admin/guides/invitations")
     @ResponseStatus(HttpStatus.CREATED)
     @SecurityRequirement(name = "bearerAuth")
-    public InvitationResponse guide(@PathVariable long companyId, @Valid @RequestBody InvitationRequests.Guide request) {
-        return invitations.inviteGuide(companyId, request);
+    public InvitationResponse guide(@Valid @RequestBody InvitationRequests.Guide request) {
+        return invitations.inviteGuide(request);
     }
 
     @PostMapping("/api/v1/admin/staff/invitations/{accountId}/resend")
@@ -38,11 +38,11 @@ public class InvitationController {
     @SecurityRequirement(name = "bearerAuth")
     public InvitationResponse resendStaff(@PathVariable long accountId) { return invitations.resendStaff(accountId); }
 
-    @PostMapping("/api/v1/companies/{companyId}/guides/invitations/{accountId}/resend")
+    @PostMapping("/api/v1/admin/guides/invitations/{accountId}/resend")
     @ResponseStatus(HttpStatus.ACCEPTED)
     @SecurityRequirement(name = "bearerAuth")
-    public InvitationResponse resendGuide(@PathVariable long companyId, @PathVariable long accountId) {
-        return invitations.resendGuide(companyId, accountId);
+    public InvitationResponse resendGuide(@PathVariable long accountId) {
+        return invitations.resendGuide(accountId);
     }
 
     @PostMapping("/api/v1/auth/activate-account")

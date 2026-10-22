@@ -1,7 +1,6 @@
 package com.trekking.app;
 
 import com.trekking.app.core.security.authorization.AuthorizationService;
-import com.trekking.app.core.security.authorization.Permission;
 import com.trekking.app.features.auth.dto.request.AuthRequests;
 import com.trekking.app.features.auth.service.AuthService;
 import com.trekking.app.features.auth.service.OtpMailSender;
@@ -15,7 +14,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
-import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestComponent;
@@ -42,6 +40,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Import(AuthorizationIntegrationTests.ScopeProbeController.class)
 class AuthorizationIntegrationTests extends AccountAuthorizationTestSupport {
     private static final String AUTHORIZATION = "/api/v1/accounts/me/authorization";
+    private static final List<String> ADMIN_PERMISSIONS = List.of(
+            "ACCOUNT_READ", "ACCOUNT_BLOCK", "ACCOUNT_ROLES_WRITE", "POLICY_MANAGE",
+            "FINANCE_READ", "PAYMENT_RECORD", "REFUND_APPROVE", "REFUND_RECORD",
+            "TOUR_READ", "TOUR_MANAGE", "TOUR_COMPOSE", "TOUR_PUBLISH", "SCHEDULE_MANAGE",
+            "BOOKING_MANAGE", "GUIDE_MANAGE");
 
     @Test
     void authorizationRequiresCurrentAuthenticatedSession() throws Exception {
@@ -50,22 +53,28 @@ class AuthorizationIntegrationTests extends AccountAuthorizationTestSupport {
                 .andExpect(status().isUnauthorized());
     }
 
+    @Test
+    void authPublicAllowlistDoesNotExposeUnknownPathsOrUnsupportedMethods() throws Exception {
+        mvc.perform(get("/api/v1/auth/future-sensitive-action")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v1/auth/login")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v1/auth/activate-account")).andExpect(status().isUnauthorized());
+    }
+
     @ParameterizedTest
     @EnumSource(RoleType.class)
-    void capabilityResponseSeparatesAllSevenRolesFromGlobalAdminPermissions(RoleType role) throws Exception {
+    void threeRoleCapabilitiesContainNoCompanyContextOrLegacyPermissions(RoleType role) throws Exception {
         long caller = account("caller@example.invalid", role.getValue());
         var result = authGet(AUTHORIZATION, session(caller)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.accountId").value(caller))
                 .andExpect(jsonPath("$.roles.length()").value(1))
                 .andExpect(jsonPath("$.roles[0]").value(role.getValue()))
-                .andExpect(jsonPath("$.companies").isEmpty())
+                .andExpect(jsonPath("$.companies").doesNotExist())
                 .andExpect(jsonPath("$.passwordHash").doesNotExist()).andReturn();
-        var body = json.readTree(result.getResponse().getContentAsString());
         var permissions = new ArrayList<String>();
-        body.get("permissions").forEach(permission -> permissions.add(permission.asText()));
+        json.readTree(result.getResponse().getContentAsString()).get("permissions")
+                .forEach(permission -> permissions.add(permission.asText()));
         if (role == RoleType.ADMIN) {
-            assertThat(permissions).containsExactlyInAnyOrder("ACCOUNT_READ", "ACCOUNT_BLOCK", "ACCOUNT_ROLES_WRITE",
-                    "COMPANY_REVIEW", "POLICY_MANAGE");
+            assertThat(permissions).containsExactlyElementsOf(ADMIN_PERMISSIONS.stream().sorted().toList());
         } else {
             assertThat(permissions).isEmpty();
         }
@@ -76,25 +85,25 @@ class AuthorizationIntegrationTests extends AccountAuthorizationTestSupport {
         long caller = account("no-role@example.invalid");
         authGet(AUTHORIZATION, session(caller)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.roles").isEmpty()).andExpect(jsonPath("$.permissions").isEmpty())
-                .andExpect(jsonPath("$.companies").isEmpty());
+                .andExpect(jsonPath("$.companies").doesNotExist());
     }
 
     @Test
-    void currentRoleChangesAreVisibleWithoutIssuingANewAccessToken() throws Exception {
-        long caller = account("caller@example.invalid", "admin", "customer");
+    void combinedRolesAndRevocationAreVisibleWithoutIssuingANewAccessToken() throws Exception {
+        long caller = account("caller@example.invalid", "admin", "customer", "guide");
         var token = session(caller);
         authGet(AUTHORIZATION, token).andExpect(status().isOk())
-                .andExpect(jsonPath("$.permissions.length()").value(5));
+                .andExpect(jsonPath("$.roles", org.hamcrest.Matchers.containsInAnyOrder("admin", "customer", "guide")))
+                .andExpect(jsonPath("$.permissions.length()").value(ADMIN_PERMISSIONS.size()));
         jdbc.update("delete from trekking.account_roles where account_id = ? and role = 'admin'", caller);
-        jdbc.update("insert into trekking.account_roles(account_id, role) values (?, 'support_staff')", caller);
         authGet(AUTHORIZATION, token).andExpect(status().isOk())
-                .andExpect(jsonPath("$.roles", org.hamcrest.Matchers.containsInAnyOrder("customer", "support_staff")))
+                .andExpect(jsonPath("$.roles", org.hamcrest.Matchers.containsInAnyOrder("customer", "guide")))
                 .andExpect(jsonPath("$.permissions").isEmpty());
     }
 
     @Test
     void accountStatusRevocationStopsAuthorizationResponseForExistingSession() throws Exception {
-        long caller = account("caller@example.invalid", "company_manager");
+        long caller = account("caller@example.invalid", "guide");
         var token = session(caller);
         authGet(AUTHORIZATION, token).andExpect(status().isOk());
         jdbc.update("update trekking.app_accounts set status = 'disabled' where id = ?", caller);
@@ -102,182 +111,73 @@ class AuthorizationIntegrationTests extends AccountAuthorizationTestSupport {
     }
 
     @Test
-    void companyGuardRequiresBothManagerRoleAndActiveMembership() throws Exception {
-        long approver = account("admin@example.invalid", "admin");
-        long roleOnly = account("role-only@example.invalid", "company_manager");
-        long membershipOnly = account("membership-only@example.invalid", "customer");
-        long manager = account("manager@example.invalid", "company_manager");
-        long companyA = company(approver, "Company A");
-        long companyB = company(approver, "Company B");
-        membership(companyA, membershipOnly, "owner", true);
-        membership(companyA, manager, "manager", true);
-        membership(companyB, manager, "owner", false);
-        for (long denied : List.of(roleOnly, membershipOnly)) {
-            companyGuard(companyA, Permission.COMPANY_READ, session(denied))
-                    .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
-        }
-        var token = session(manager);
-        for (Permission permission : List.of(Permission.COMPANY_READ, Permission.COMPANY_MANAGE, Permission.COMPANY_OPERATE)) {
-            companyGuard(companyA, permission, token).andExpect(status().isOk());
-            companyGuard(companyB, permission, token).andExpect(status().isNotFound());
-        }
-        companyGuard(999999, Permission.COMPANY_READ, token).andExpect(status().isNotFound());
-    }
-
-    @Test
-    void globalAdminDoesNotBypassCompanyOrGuideOwnership() throws Exception {
+    void guideNeedsCurrentRoleAnActiveProfileAndExactAssignment() throws Exception {
         long admin = account("admin@example.invalid", "admin");
-        long company = company(admin, "Company A");
-        long schedule = schedule(company);
-        var token = session(admin);
-        membership(company, admin, "owner", true);
-        companyGuard(company, Permission.COMPANY_MANAGE, token).andExpect(status().isNotFound());
-        guideGuard(schedule, token).andExpect(status().isNotFound());
-    }
-
-    @Test
-    void capabilityCompanyContextsContainOnlyActiveMembershipsAndCurrentStatus() throws Exception {
-        long approver = account("admin@example.invalid", "admin");
-        long manager = account("manager@example.invalid", "company_manager");
-        long approved = company(approver, "Approved Company");
-        long pending = company(approver, "Pending Company");
-        long inactive = company(approver, "Inactive Membership");
-        long unrelated = company(approver, "Unrelated Company");
-        jdbc.update("update trekking.companies set status = 'pending' where id = ?", pending);
-        membership(approved, manager, "owner", true);
-        membership(pending, manager, "manager", true);
-        membership(inactive, manager, "owner", false);
-        var result = authGet(AUTHORIZATION, session(manager)).andExpect(status().isOk())
-                .andExpect(jsonPath("$.companies.length()").value(2)).andReturn();
-        var companies = json.readTree(result.getResponse().getContentAsString()).get("companies");
-        var contexts = new java.util.HashMap<Long, List<String>>();
-        companies.forEach(context -> contexts.put(context.get("companyId").asLong(),
-                List.of(context.get("status").asText(), context.get("memberRole").asText())));
-        assertThat(contexts).containsEntry(approved, List.of("approved", "owner"))
-                .containsEntry(pending, List.of("pending", "manager"))
-                .doesNotContainKeys(inactive, unrelated);
-    }
-
-    @Test
-    void membershipAndManagerRoleRevocationsTakeEffectOnTheSameJwt() throws Exception {
-        long approver = account("admin@example.invalid", "admin");
-        long manager = account("manager@example.invalid", "company_manager", "customer");
-        long company = company(approver, "Company A");
-        membership(company, manager, "owner", true);
-        var token = session(manager);
-        companyGuard(company, Permission.COMPANY_MANAGE, token).andExpect(status().isOk());
-        jdbc.update("update trekking.company_members set active = false where account_id = ?", manager);
-        companyGuard(company, Permission.COMPANY_MANAGE, token).andExpect(status().isNotFound());
-        authGet(AUTHORIZATION, token).andExpect(status().isOk()).andExpect(jsonPath("$.companies").isEmpty());
-        jdbc.update("update trekking.company_members set active = true where account_id = ?", manager);
-        companyGuard(company, Permission.COMPANY_MANAGE, token).andExpect(status().isOk());
-        jdbc.update("delete from trekking.account_roles where account_id = ? and role = 'company_manager'", manager);
-        companyGuard(company, Permission.COMPANY_MANAGE, token).andExpect(status().isNotFound());
-    }
-
-    @Test
-    void adminRoleReplacementRevokesCompanyManagementFromExistingJwt() throws Exception {
-        long admin = account("admin@example.invalid", "admin");
-        long manager = account("manager@example.invalid", "company_manager", "customer");
-        long company = company(admin, "Company A");
-        membership(company, manager, "owner", true);
-        var managerToken = session(manager);
-        companyGuard(company, Permission.COMPANY_MANAGE, managerToken).andExpect(status().isOk());
-        authPut("/api/v1/admin/accounts/" + manager + "/roles",
-                Map.of("roles", List.of("customer"), "reason", "Company responsibility ended"), session(admin))
-                .andExpect(status().isOk());
-        companyGuard(company, Permission.COMPANY_MANAGE, managerToken).andExpect(status().isNotFound());
-        authGet(AUTHORIZATION, managerToken).andExpect(status().isOk())
-                .andExpect(jsonPath("$.roles.length()").value(1)).andExpect(jsonPath("$.roles[0]").value("customer"));
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"pending", "suspended", "rejected"})
-    void nonApprovedCompaniesPermitProfileManagementButDenyOperations(String statusValue) throws Exception {
-        long approver = account("admin@example.invalid", "admin");
-        long manager = account("manager@example.invalid", "company_manager");
-        long company = company(approver, "Company A");
-        membership(company, manager, "manager", true);
-        var token = session(manager);
-        companyGuard(company, Permission.COMPANY_OPERATE, token).andExpect(status().isOk());
-        jdbc.update("update trekking.companies set status = ? where id = ?", statusValue, company);
-        companyGuard(company, Permission.COMPANY_READ, token).andExpect(status().isOk());
-        companyGuard(company, Permission.COMPANY_MANAGE, token).andExpect(status().isOk());
-        companyGuard(company, Permission.COMPANY_OPERATE, token).andExpect(status().isNotFound());
-    }
-
-    @Test
-    void guideMustBeAssignedToTheExactScheduleAndCompany() throws Exception {
-        long approver = account("admin@example.invalid", "admin");
-        long caller = account("guide@example.invalid", "guide");
-        long other = account("other-guide@example.invalid", "guide");
-        long companyA = company(approver, "Company A");
-        long companyB = company(approver, "Company B");
-        long guideA = guide(companyA, caller);
-        long guideB = guide(companyB, other);
-        long assigned = schedule(companyA);
-        long unassigned = schedule(companyA);
-        long outsideCompany = schedule(companyB);
-        assign(assigned, guideA, companyA);
-        assign(outsideCompany, guideB, companyB);
+        long caller = account("guide@example.invalid", "guide", "customer");
+        long other = account("other@example.invalid", "guide");
+        long profile = internalGuide(caller);
+        long otherProfile = internalGuide(other);
+        long assigned = internalSchedule();
+        long unassigned = internalSchedule();
+        long others = internalSchedule();
+        assign(assigned, profile);
+        assign(others, otherProfile);
         var token = session(caller);
         guideGuard(assigned, token).andExpect(status().isOk());
-        for (long denied : List.of(unassigned, outsideCompany, 999999L)) {
+        for (long denied : List.of(unassigned, others, 999999L)) {
             guideGuard(denied, token).andExpect(status().isNotFound())
                     .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
         }
-        jdbc.update("delete from trekking.schedule_guides where schedule_id = ? and guide_id = ?", assigned, guideA);
+        guideGuard(assigned, session(admin)).andExpect(status().isNotFound());
+        jdbc.update("delete from trekking.schedule_guides where schedule_id = ? and guide_id = ?", assigned, profile);
         guideGuard(assigned, token).andExpect(status().isNotFound());
     }
 
     @Test
-    void guideProfileCompanyAndRoleRevocationsTakeEffectDuringSession() throws Exception {
-        long approver = account("admin@example.invalid", "admin");
+    void profileAndRoleRevocationsTakeEffectOnTheSameJwt() throws Exception {
         long caller = account("guide@example.invalid", "guide", "customer");
-        long company = company(approver, "Company A");
-        long guide = guide(company, caller);
-        long schedule = schedule(company);
-        assign(schedule, guide, company);
+        long profile = internalGuide(caller);
+        long departure = internalSchedule();
+        assign(departure, profile);
         var token = session(caller);
-        guideGuard(schedule, token).andExpect(status().isOk());
-        jdbc.update("update trekking.guides set active = false where id = ?", guide);
-        guideGuard(schedule, token).andExpect(status().isNotFound());
-        jdbc.update("update trekking.guides set active = true where id = ?", guide);
-        guideGuard(schedule, token).andExpect(status().isOk());
-        jdbc.update("update trekking.companies set status = 'suspended' where id = ?", company);
-        guideGuard(schedule, token).andExpect(status().isNotFound());
-        jdbc.update("update trekking.companies set status = 'approved' where id = ?", company);
-        guideGuard(schedule, token).andExpect(status().isOk());
+        guideGuard(departure, token).andExpect(status().isOk());
+        jdbc.update("update trekking.guides set active = false where id = ?", profile);
+        guideGuard(departure, token).andExpect(status().isNotFound());
+        jdbc.update("update trekking.guides set active = true where id = ?", profile);
+        guideGuard(departure, token).andExpect(status().isOk());
         jdbc.update("delete from trekking.account_roles where account_id = ? and role = 'guide'", caller);
-        guideGuard(schedule, token).andExpect(status().isNotFound());
+        guideGuard(departure, token).andExpect(status().isNotFound());
     }
 
-    private ResultActions companyGuard(long companyId, Permission permission, IssuedTokens token) throws Exception {
-        return authGet("/api/v1/test-authorization/companies/" + companyId + "/" + permission.name(), token);
+    @Test
+    void accountRoleReplacementRevokesAssignedGuideAccessFromExistingJwt() throws Exception {
+        long admin = account("admin@example.invalid", "admin");
+        long caller = account("guide@example.invalid", "guide", "customer");
+        long profile = internalGuide(caller);
+        long departure = internalSchedule();
+        assign(departure, profile);
+        var token = session(caller);
+        guideGuard(departure, token).andExpect(status().isOk());
+        authPut("/api/v1/admin/accounts/" + caller + "/roles",
+                Map.of("roles", List.of("customer"), "reason", "Guide responsibility ended"), session(admin))
+                .andExpect(status().isOk());
+        guideGuard(departure, token).andExpect(status().isNotFound());
     }
 
     private ResultActions guideGuard(long scheduleId, IssuedTokens token) throws Exception {
         return authGet("/api/v1/test-authorization/schedules/" + scheduleId, token);
     }
 
-    private void assign(long scheduleId, long guideId, long companyId) {
-        jdbc.update("insert into trekking.schedule_guides(schedule_id, guide_id, company_id) values (?, ?, ?)",
-                scheduleId, guideId, companyId);
+    private void assign(long scheduleId, long guideId) {
+        jdbc.update("insert into trekking.schedule_guides(schedule_id, guide_id) values (?, ?)", scheduleId, guideId);
     }
 
-    /** Test-only HTTP probes exercise shared guards until their consuming business APIs exist. */
+    /** Probes verify shared boundaries; booking/tour business endpoints are added in later phases. */
     @TestComponent
     @RestController
     static class ScopeProbeController {
         private final AuthorizationService authorization;
-
         ScopeProbeController(AuthorizationService authorization) { this.authorization = authorization; }
-
-        @GetMapping("/api/v1/test-authorization/companies/{companyId}/{permission}")
-        Map<String, Boolean> company(@PathVariable long companyId, @PathVariable Permission permission) {
-            authorization.requireCompany(permission, companyId);
-            return Map.of("allowed", true);
-        }
 
         @GetMapping("/api/v1/test-authorization/schedules/{scheduleId}")
         Map<String, Boolean> schedule(@PathVariable long scheduleId) {
@@ -362,31 +262,17 @@ abstract class AccountAuthorizationTestSupport extends AuthTestInfrastructure {
         };
     }
 
-    long company(long approver, String name) {
+    long internalGuide(long accountId) {
+        return jdbc.queryForObject("insert into trekking.guides(account_id) values (?) returning id", Long.class, accountId);
+    }
+
+    long internalSchedule() {
+        long tourId = jdbc.queryForObject("insert into trekking.tours(title) values ('Scope test tour') returning id", Long.class);
         return jdbc.queryForObject("""
-                insert into trekking.companies(name, status, approved_by, approved_at)
-                values (?, 'approved', ?, current_timestamp) returning id
-                """, Long.class, name, approver);
-    }
-
-    void membership(long companyId, long accountId, String memberRole, boolean active) {
-        jdbc.update("insert into trekking.company_members(company_id, account_id, member_role, active) values (?, ?, ?, ?)",
-                companyId, accountId, memberRole, active);
-    }
-
-    long guide(long companyId, long accountId) {
-        return jdbc.queryForObject("insert into trekking.guides(company_id, account_id) values (?, ?) returning id",
-                Long.class, companyId, accountId);
-    }
-
-    long schedule(long companyId) {
-        long tourId = jdbc.queryForObject("insert into trekking.tours(company_id, title) values (?, 'Scope test tour') returning id",
-                Long.class, companyId);
-        return jdbc.queryForObject("""
-                insert into trekking.tour_schedules(tour_id, company_id, starts_at, ends_at, capacity,
+                insert into trekking.tour_schedules(tour_id, starts_at, ends_at, capacity,
                     base_price_vnd, deposit_percent, balance_due_at)
-                values (?, ?, current_timestamp + interval '10 days', current_timestamp + interval '11 days',
+                values (?, current_timestamp + interval '10 days', current_timestamp + interval '11 days',
                     10, 100000, 30, current_timestamp + interval '9 days') returning id
-                """, Long.class, tourId, companyId);
+                """, Long.class, tourId);
     }
 }

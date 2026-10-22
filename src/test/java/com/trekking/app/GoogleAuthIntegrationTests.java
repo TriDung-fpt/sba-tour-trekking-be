@@ -95,7 +95,7 @@ class GoogleAuthIntegrationTests extends AuthTestInfrastructure {
     @Test
     void linksVerifiedLocalAccountWithoutReplacingPasswordProfileOrRoles() throws Exception {
         registerLocal(true);
-        jdbc.update("insert into trekking.account_roles(account_id, role) values (1, 'support_staff')");
+        jdbc.update("insert into trekking.account_roles(account_id, role) values (1, 'guide')");
         String originalPassword = passwordHash();
         long originalId = jdbc.queryForObject("select id from trekking.app_accounts", Long.class);
         googleLogin().andExpect(status().isOk())
@@ -103,7 +103,7 @@ class GoogleAuthIntegrationTests extends AuthTestInfrastructure {
                 .andExpect(jsonPath("$.account.fullName").value("Local Customer"))
                 .andExpect(jsonPath("$.account.phone").value("0901234567"))
                 .andExpect(jsonPath("$.account.roles[0]").value("customer"))
-                .andExpect(jsonPath("$.account.roles[1]").value("support_staff"));
+                .andExpect(jsonPath("$.account.roles[1]").value("guide"));
         assertThat(passwordHash()).isEqualTo(originalPassword);
         assertThat(jdbc.queryForObject("select google_subject from trekking.app_accounts", String.class)).isEqualTo(SUBJECT);
         assertCounts(1, 2);

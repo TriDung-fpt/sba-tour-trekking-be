@@ -3,8 +3,7 @@ package com.trekking.app.features.booking.entity;
 import com.trekking.app.core.common.entity.TimestampedEntity;
 import com.trekking.app.features.account.entity.AppAccount;
 import com.trekking.app.features.booking.enums.BookingStatus;
-import com.trekking.app.features.company.entity.CompanyAgreement;
-import com.trekking.app.features.company.entity.PolicyVersion;
+import com.trekking.app.features.policy.entity.PolicyVersion;
 import com.trekking.app.features.tour.entity.TourSchedule;
 import jakarta.persistence.*;
 import java.math.BigDecimal;
@@ -43,9 +42,6 @@ public class Booking extends TimestampedEntity {
     @Column(name = "schedule_id", nullable = false)
     private Long scheduleId;
 
-    @Column(name = "company_id", nullable = false)
-    private Long companyId;
-
     @Column(name = "participant_count", nullable = false)
     private Integer participantCount;
 
@@ -66,14 +62,8 @@ public class Booking extends TimestampedEntity {
     @Column(name = "deposit_percent", nullable = false, precision = 5, scale = 2)
     private BigDecimal depositPercent;
 
-    @Column(name = "platform_fee_percent", nullable = false, precision = 5, scale = 2)
-    private BigDecimal platformFeePercent = new BigDecimal("10.00");
-
     @Column(name = "cancellation_policy_version_id", nullable = false)
     private Long cancellationPolicyVersionId;
-
-    @Column(name = "company_agreement_id")
-    private Long companyAgreementId;
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "policy_snapshot", nullable = false, columnDefinition = "jsonb")
@@ -125,18 +115,8 @@ public class Booking extends TimestampedEntity {
     private AppAccount cancelledByAccount;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumns({
-        @JoinColumn(name = "schedule_id", referencedColumnName = "id", insertable = false, updatable = false),
-        @JoinColumn(name = "company_id", referencedColumnName = "company_id", insertable = false, updatable = false)
-    })
+    @JoinColumn(name = "schedule_id", referencedColumnName = "id", insertable = false, updatable = false)
     @Setter(AccessLevel.NONE)
     private TourSchedule schedule;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = true)
-    @JoinColumns({
-        @JoinColumn(name = "company_agreement_id", referencedColumnName = "id", insertable = false, updatable = false),
-        @JoinColumn(name = "company_id", referencedColumnName = "company_id", insertable = false, updatable = false)
-    })
-    @Setter(AccessLevel.NONE)
-    private CompanyAgreement companyAgreement;
 }

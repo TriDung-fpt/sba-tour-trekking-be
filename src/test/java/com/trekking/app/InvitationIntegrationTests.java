@@ -43,7 +43,7 @@ class InvitationIntegrationTests extends AccountAuthorizationTestSupport {
     @Autowired RedisAuthStore authStore;
 
     @ParameterizedTest
-    @ValueSource(strings = {"support_staff", "content_staff", "accountant"})
+    @ValueSource(strings = {"admin"})
     void adminInvitesStaffAndActivationVerifiesEmailSetsPasswordWithoutIssuingSession(String role) throws Exception {
         long admin = account("admin@example.invalid", "admin");
         doAnswer(call -> {
@@ -76,7 +76,7 @@ class InvitationIntegrationTests extends AccountAuthorizationTestSupport {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"admin", "company_manager", "guide", "customer", "SUPPORT_STAFF"})
+    @ValueSource(strings = {"accountant", "support_staff", "content_staff", "company_manager", "guide", "customer", "ADMIN"})
     void staffRoleWhitelistRejectsEscalation(String role) throws Exception {
         long admin = account("admin@example.invalid", "admin");
         authPost(STAFF, staff(role), session(admin)).andExpect(status().isBadRequest());
@@ -85,36 +85,29 @@ class InvitationIntegrationTests extends AccountAuthorizationTestSupport {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"customer", "company_manager", "guide", "support_staff", "content_staff", "accountant"})
+    @ValueSource(strings = {"customer", "guide"})
     void nonAdminsCannotInviteStaff(String role) throws Exception {
         long caller = account("caller@example.invalid", role);
-        authPost(STAFF, staff("accountant"), session(caller)).andExpect(status().isForbidden());
+        authPost(STAFF, staff("admin"), session(caller)).andExpect(status().isForbidden());
         assertThat(countEmail()).isZero();
         verifyNoInteractions(invitationsMail);
     }
 
     @Test
-    void guideRequiresApprovedCompanyAndActiveScopedManagerAndIgnoresInjectedRole() throws Exception {
+    void adminInvitesInternalGuideWithoutCompanyAndIgnoresInjectedRoleOrCompany() throws Exception {
         long admin = account("admin@example.invalid", "admin");
-        long manager = account("manager@example.invalid", "company_manager");
-        long companyA = company(admin, "Company A");
-        long companyB = company(admin, "Company B");
-        membership(companyA, manager, "owner", true);
-        var token = session(manager);
-        var request = Map.of("email", EMAIL, "fullName", "Invited Guide", "role", "admin", "companyId", companyB);
-        authPost(guidePath(companyB), request, token).andExpect(status().isNotFound());
-        authPost(guidePath(companyA), request, session(admin)).andExpect(status().isNotFound());
-        jdbc.update("update trekking.companies set status = 'suspended' where id = ?", companyA);
-        authPost(guidePath(companyA), request, token).andExpect(status().isNotFound());
-        jdbc.update("update trekking.companies set status = 'approved' where id = ?", companyA);
-        authPost(guidePath(companyA), request, token).andExpect(status().isCreated()).andExpect(jsonPath("$.role").value("guide"))
-                .andExpect(jsonPath("$.companyId").value(companyA));
+        var token = session(admin);
+        var request = Map.of("email", EMAIL, "fullName", "Invited Guide", "role", "admin", "companyId", 999999);
+        authPost(guidePath(), request, token).andExpect(status().isCreated()).andExpect(jsonPath("$.role").value("guide"))
+                .andExpect(jsonPath("$.companyId").doesNotExist());
         long invited = id();
         assertThat(jdbc.queryForList("select role from trekking.account_roles where account_id = ?", String.class, invited)).containsExactly("guide");
-        assertThat(jdbc.queryForObject("select company_id from trekking.guides where account_id = ?", Long.class, invited)).isEqualTo(companyA);
-        jdbc.update("update trekking.company_members set active = false where company_id = ? and account_id = ?", companyA, manager);
+        assertThat(jdbc.queryForObject("select company_id from trekking.guides where account_id = ?", Long.class, invited)).isNull();
+        assertThat(jdbc.queryForObject("select count(*) from trekking.companies", Integer.class)).isZero();
         clearCooldown();
-        authPost(guidePath(companyA) + "/" + invited + "/resend", Map.of(), token).andExpect(status().isNotFound());
+        authPost(STAFF + "/" + invited + "/resend", Map.of(), token).andExpect(status().isNotFound());
+        authPost(guidePath() + "/" + invited + "/resend", Map.of(), token).andExpect(status().isAccepted());
+        activate(code()).andExpect(status().isOk());
     }
 
     @Test
@@ -122,7 +115,7 @@ class InvitationIntegrationTests extends AccountAuthorizationTestSupport {
         long admin = account("admin@example.invalid", "admin");
         long existing = account(EMAIL, "customer");
         String hash = passwordHash(existing);
-        authPost(STAFF, staff("accountant"), session(admin)).andExpect(status().isConflict());
+        authPost(STAFF, staff("admin"), session(admin)).andExpect(status().isConflict());
         assertThat(passwordHash(existing)).isEqualTo(hash);
         assertThat(jdbc.queryForList("select role from trekking.account_roles where account_id = ?", String.class, existing)).containsExactly("customer");
         verifyNoInteractions(invitationsMail);
@@ -134,7 +127,7 @@ class InvitationIntegrationTests extends AccountAuthorizationTestSupport {
         var token = session(admin);
         doThrow(new DataAccessResourceFailureException("simulated challenge outage"))
                 .when(invitationStore).issue(anyString(), anyString(), anyString());
-        var result = authPost(STAFF, staff("support_staff"), token).andExpect(status().isCreated())
+        var result = authPost(STAFF, staff("admin"), token).andExpect(status().isCreated())
                 .andExpect(jsonPath("$.deliveryStatus").value("retry_required"))
                 .andExpect(jsonPath("$.accountId").isNumber()).andReturn();
         long accountId = json.readTree(result.getResponse().getContentAsString()).get("accountId").asLong();
@@ -151,7 +144,7 @@ class InvitationIntegrationTests extends AccountAuthorizationTestSupport {
         long admin = account("admin@example.invalid", "admin");
         var token = session(admin);
         doThrow(new MailSendException("simulated delivery failure")).when(invitationsMail).send(anyString(), anyString());
-        authPost(STAFF, staff("support_staff"), token).andExpect(status().isCreated())
+        authPost(STAFF, staff("admin"), token).andExpect(status().isCreated())
                 .andExpect(jsonPath("$.deliveryStatus").value("retry_required"));
         long invited = id();
         String hash = passwordHash(invited);
@@ -172,7 +165,7 @@ class InvitationIntegrationTests extends AccountAuthorizationTestSupport {
     void resendReplacesOldCodeAndEnforcesFivePerHour() throws Exception {
         long admin = account("admin@example.invalid", "admin");
         var token = session(admin);
-        authPost(STAFF, staff("support_staff"), token).andExpect(status().isCreated());
+        authPost(STAFF, staff("admin"), token).andExpect(status().isCreated());
         long invited = id();
         String oldHash = "obsolete-challenge-hash";
         redis.opsForHash().put(challenge(), "hash", oldHash);
@@ -191,7 +184,7 @@ class InvitationIntegrationTests extends AccountAuthorizationTestSupport {
     void fiveWrongCodesExhaustChallengeAndExpirationIsEnforced() throws Exception {
         long admin = account("admin@example.invalid", "admin");
         var token = session(admin);
-        authPost(STAFF, staff("support_staff"), token).andExpect(status().isCreated());
+        authPost(STAFF, staff("admin"), token).andExpect(status().isCreated());
         String code = code();
         String wrong = code.equals("000000") ? "111111" : "000000";
         for (int i = 0; i < 5; i++) activate(wrong).andExpect(status().isBadRequest());
@@ -292,30 +285,25 @@ class InvitationIntegrationTests extends AccountAuthorizationTestSupport {
     }
 
     @Test
-    void guideActivationRejectsDisabledGuideAndSuspendedCompany() throws Exception {
+    void guideActivationRejectsDisabledGuideAndLegacyCompanyProfile() throws Exception {
         long admin = account("admin@example.invalid", "admin");
-        long manager = account("manager@example.invalid", "company_manager");
         long company = company(admin, "Approved Company");
-        membership(company, manager, "manager", true);
-        authPost(guidePath(company), Map.of("email", EMAIL, "fullName", "Guide"), session(manager)).andExpect(status().isCreated());
+        authPost(guidePath(), Map.of("email", EMAIL, "fullName", "Guide"), session(admin)).andExpect(status().isCreated());
         String code = code();
         jdbc.update("update trekking.guides set active = false where account_id = ?", id());
         activate(code).andExpect(status().isBadRequest());
         jdbc.update("update trekking.guides set active = true where account_id = ?", id());
-        jdbc.update("update trekking.companies set status = 'suspended' where id = ?", company);
+        jdbc.update("update trekking.guides set company_id = ? where account_id = ?", company, id());
         activate(code).andExpect(status().isBadRequest());
     }
 
     @Test
     void auditFailureRollsBackAccountRoleAndGuideAndDoesNotSendMail() throws Exception {
         long admin = account("admin@example.invalid", "admin");
-        long manager = account("manager@example.invalid", "company_manager");
-        long company = company(admin, "Approved Company");
-        membership(company, manager, "owner", true);
-        var token = session(manager);
+        var token = session(admin);
         jdbc.execute("alter table trekking.audit_logs add constraint qa_invitation_audit check (action <> 'INVITATION_CREATED')");
         try {
-            authPost(guidePath(company), Map.of("email", EMAIL, "fullName", "Guide"), token).andExpect(status().isServiceUnavailable());
+            authPost(guidePath(), Map.of("email", EMAIL, "fullName", "Guide"), token).andExpect(status().isServiceUnavailable());
             assertThat(countEmail()).isZero();
             assertThat(jdbc.queryForObject("select count(*) from trekking.guides", Integer.class)).isZero();
             assertThat(jdbc.queryForObject("select count(*) from trekking.account_roles where role = 'guide'", Integer.class)).isZero();
@@ -348,7 +336,7 @@ class InvitationIntegrationTests extends AccountAuthorizationTestSupport {
         long admin = account("admin@example.invalid", "admin");
         var token = session(admin);
         try (var executor = Executors.newFixedThreadPool(2)) {
-            Callable<Integer> create = () -> authPost(STAFF, staff("support_staff"), token).andReturn().getResponse().getStatus();
+            Callable<Integer> create = () -> authPost(STAFF, staff("admin"), token).andReturn().getResponse().getStatus();
             var created = executor.invokeAll(List.of(create, create));
             assertThat(List.of(created.get(0).get(), created.get(1).get())).containsExactlyInAnyOrder(201, 409);
             assertThat(countEmail()).isEqualTo(1);
@@ -368,7 +356,78 @@ class InvitationIntegrationTests extends AccountAuthorizationTestSupport {
 
     private void invite() throws Exception {
         long admin = account("admin@example.invalid", "admin");
-        authPost(STAFF, staff("support_staff"), session(admin)).andExpect(status().isCreated());
+        authPost(STAFF, staff("admin"), session(admin)).andExpect(status().isCreated());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"customer", "guide"})
+    void nonAdminsCannotInviteGuides(String role) throws Exception {
+        long caller = account("caller@example.invalid", role);
+        authPost(guidePath(), Map.of("email", EMAIL, "fullName", "Guide"), session(caller)).andExpect(status().isForbidden());
+        assertThat(countEmail()).isZero();
+    }
+
+    @Test
+    void oldContextCannotActivateEvenWhenCurrentRoleIsAdmin() throws Exception {
+        invite();
+        long invited = id();
+        long version = jdbc.queryForObject("select session_version from trekking.app_accounts where id = ?", Long.class, invited);
+        String oldContext = crypto.hmac("invitation:activate:" + invited + ":" + EMAIL + ":"
+                + crypto.sessionFingerprint(passwordHash(invited), version) + ":ADMIN:null");
+        clearCooldown();
+        assertThat(invitationStore.issue(EMAIL, crypto.hmac("invitation:activate:otp:" + EMAIL + ":123456"), oldContext)).isTrue();
+        activate("123456").andExpect(status().isBadRequest());
+        assertThat(jdbc.queryForObject("select must_change_password from trekking.app_accounts where id = ?", Boolean.class, invited)).isTrue();
+    }
+
+    @Test
+    void pendingInvitationRoleChangesDoNotPromoteCustomerOrGuideToAdmin() throws Exception {
+        invite();
+        long invited = id();
+        String code = code();
+        jdbc.update("delete from trekking.account_roles where account_id = ?", invited);
+        jdbc.update("insert into trekking.account_roles(account_id, role) values (?, 'customer')", invited);
+        activate(code).andExpect(status().isBadRequest());
+        assertThat(jdbc.queryForObject("select email_verified_at from trekking.app_accounts where id = ?", Object.class, invited)).isNull();
+    }
+
+    @Test
+    void legacyInvitationAuditCannotResumeAsInternalStaff() throws Exception {
+        long admin = account("admin@example.invalid", "admin");
+        long invited = account(EMAIL, "admin");
+        jdbc.update("update trekking.app_accounts set email_verified_at = null, must_change_password = true where id = ?", invited);
+        jdbc.update("""
+                insert into trekking.audit_logs(actor_id,entity_type,entity_id,action,details)
+                values (?, 'invitation', ?, 'INVITATION_CREATED', '{"role":"accountant","companyId":null}')
+                """, admin, invited);
+        authPost(STAFF + "/" + invited + "/resend", Map.of(), session(admin)).andExpect(status().isNotFound());
+        verifyNoInteractions(invitationsMail);
+    }
+
+    @Test
+    void replacingGuideProfileInvalidatesOutstandingActivationContext() throws Exception {
+        long admin = account("admin@example.invalid", "admin");
+        authPost(guidePath(), Map.of("email", EMAIL, "fullName", "Guide"), session(admin)).andExpect(status().isCreated());
+        long invited = id();
+        String code = code();
+        jdbc.update("delete from trekking.guides where account_id = ?", invited);
+        jdbc.update("insert into trekking.guides(account_id) values (?)", invited);
+        activate(code).andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void revokedAndRegrantedGuideRoleRequiresNewActivationCode() throws Exception {
+        long admin = account("admin@example.invalid", "admin");
+        var token = session(admin);
+        authPost(guidePath(), Map.of("email", EMAIL, "fullName", "Guide"), token).andExpect(status().isCreated());
+        long invited = id();
+        String oldCode = code();
+        jdbc.update("delete from trekking.account_roles where account_id = ? and role = 'guide'", invited);
+        jdbc.update("insert into trekking.account_roles(account_id, role) values (?, 'guide')", invited);
+        activate(oldCode).andExpect(status().isBadRequest());
+        clearCooldown();
+        authPost(guidePath() + "/" + invited + "/resend", Map.of(), token).andExpect(status().isAccepted());
+        activate(code()).andExpect(status().isOk());
     }
 
     private Map<String, String> staff(String role) { return Map.of("email", EMAIL, "fullName", "Invited Staff", "role", role); }
@@ -376,7 +435,7 @@ class InvitationIntegrationTests extends AccountAuthorizationTestSupport {
     private ResultActions activate(String code) throws Exception {
         return mvc.perform(post(ACTIVATE).with(realCsrf()).contentType("application/json").content(json.writeValueAsString(activation(code))));
     }
-    private String guidePath(long companyId) { return "/api/v1/companies/" + companyId + "/guides/invitations"; }
+    private String guidePath() { return "/api/v1/admin/guides/invitations"; }
     private long id() { return jdbc.queryForObject("select id from trekking.app_accounts where email = ?", Long.class, EMAIL); }
     private int countEmail() { return jdbc.queryForObject("select count(*) from trekking.app_accounts where email = ?", Integer.class, EMAIL); }
     private String passwordHash(long accountId) { return jdbc.queryForObject("select password_hash from trekking.app_accounts where id = ?", String.class, accountId); }

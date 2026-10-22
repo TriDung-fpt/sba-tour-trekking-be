@@ -5,5 +5,5 @@ import com.trekking.app.features.tour.entity.ScheduleGuideId;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface ScheduleGuideRepository extends JpaRepository<ScheduleGuide, ScheduleGuideId> {
-    boolean existsByScheduleIdAndGuideIdAndCompanyId(Long scheduleId, Long guideId, Long companyId);
+    boolean existsByScheduleIdAndGuideId(Long scheduleId, Long guideId);
 }

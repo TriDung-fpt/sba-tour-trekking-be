@@ -27,9 +27,6 @@ public class TourSchedule extends TimestampedEntity {
     @Column(name = "tour_id", nullable = false)
     private Long tourId;
 
-    @Column(name = "company_id", nullable = false)
-    private Long companyId;
-
     @Column(name = "starts_at", nullable = false)
     private OffsetDateTime startsAt;
 
@@ -81,10 +78,7 @@ public class TourSchedule extends TimestampedEntity {
     private Integer lockVersion = 0;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumns({
-        @JoinColumn(name = "tour_id", referencedColumnName = "id", insertable = false, updatable = false),
-        @JoinColumn(name = "company_id", referencedColumnName = "company_id", insertable = false, updatable = false)
-    })
+    @JoinColumn(name = "tour_id", referencedColumnName = "id", insertable = false, updatable = false)
     @Setter(AccessLevel.NONE)
     private Tour tour;
 

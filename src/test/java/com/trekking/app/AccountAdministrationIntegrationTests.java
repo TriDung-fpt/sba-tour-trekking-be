@@ -2,6 +2,10 @@ package com.trekking.app;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -31,7 +35,7 @@ class AccountAdministrationIntegrationTests extends AccountAuthorizationTestSupp
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"customer", "company_manager", "guide", "support_staff", "content_staff", "accountant"})
+    @ValueSource(strings = {"customer", "guide"})
     void everyNonAdminRoleIsDeniedAccountAdministration(String role) throws Exception {
         long caller = account("caller@example.invalid", role);
         long target = account("target@example.invalid", "customer");
@@ -39,7 +43,7 @@ class AccountAdministrationIntegrationTests extends AccountAuthorizationTestSupp
         authGet(ADMIN_ACCOUNTS + target, token).andExpect(status().isForbidden());
         authPost(ADMIN_ACCOUNTS + target + "/block", Map.of("reason", "Violation"), token)
                 .andExpect(status().isForbidden());
-        authPut(ADMIN_ACCOUNTS + target + "/roles", Map.of("reason", "Assign support", "roles", List.of("support_staff")), token)
+        authPut(ADMIN_ACCOUNTS + target + "/roles", Map.of("reason", "Assign guide", "roles", List.of("guide")), token)
                 .andExpect(status().isForbidden());
         assertThat(accountStatus(target)).isEqualTo("active");
         assertThat(auditCount(target)).isZero();
@@ -151,24 +155,88 @@ class AccountAdministrationIntegrationTests extends AccountAuthorizationTestSupp
     }
 
     @Test
-    void adminCannotMutateSelfOrAnyAdminAccount() throws Exception {
+    void adminCannotBlockUnblockOrDemoteSelf() throws Exception {
         long admin = account("admin@example.invalid", "admin");
-        long otherAdmin = account("other-admin@example.invalid", "customer", "admin");
         var token = session(admin);
-        for (long target : List.of(admin, otherAdmin)) {
-            for (String action : List.of("block", "unblock")) {
-                authPost(ADMIN_ACCOUNTS + target + "/" + action, Map.of("reason", "Invalid action"), token)
-                        .andExpect(status().isForbidden());
-            }
-            authPut(ADMIN_ACCOUNTS + target + "/roles", Map.of("roles", List.of("customer"), "reason", "Demote"), token)
+        for (String action : List.of("block", "unblock")) {
+            authPost(ADMIN_ACCOUNTS + admin + "/" + action, Map.of("reason", "Invalid action"), token)
                     .andExpect(status().isForbidden());
-            assertThat(accountStatus(target)).isEqualTo("active");
-            assertThat(auditCount(target)).isZero();
         }
+        authPut(ADMIN_ACCOUNTS + admin + "/roles", Map.of("roles", List.of("customer"), "reason", "Demote"), token)
+                .andExpect(status().isForbidden());
+        assertThat(accountStatus(admin)).isEqualTo("active");
+        assertThat(auditCount(admin)).isZero();
+    }
+
+    @Test
+    void administratorCanBlockUnblockAndDemoteAnotherAdministrator() throws Exception {
+        long admin = account("admin@example.invalid", "admin");
+        long target = account("other-admin@example.invalid", "customer", "admin");
+        var token = session(admin);
+        var oldTargetToken = session(target);
+        authPost(ADMIN_ACCOUNTS + target + "/block", Map.of("reason", "Internal access revoked"), token)
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("blocked"));
+        authGet(ADMIN_ACCOUNTS + admin, oldTargetToken).andExpect(status().isUnauthorized());
+        refresh(oldTargetToken).andExpect(status().isUnauthorized());
+        authPost(ADMIN_ACCOUNTS + target + "/unblock", Map.of("reason", "Access reviewed"), token)
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("active"));
+        authGet(ADMIN_ACCOUNTS + admin, oldTargetToken).andExpect(status().isUnauthorized());
+        var renewedTargetToken = session(target);
+        authGet(ADMIN_ACCOUNTS + admin, renewedTargetToken).andExpect(status().isOk());
+        authPut(ADMIN_ACCOUNTS + target + "/roles",
+                Map.of("roles", List.of("customer", "guide"), "reason", "Administration responsibility ended"), token)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.roles", org.hamcrest.Matchers.containsInAnyOrder("customer", "guide")));
+        authGet(ADMIN_ACCOUNTS + admin, renewedTargetToken).andExpect(status().isForbidden());
+        assertThat(accountStatus(admin)).isEqualTo("active");
+        assertThat(jdbc.queryForList("select role from trekking.account_roles where account_id = ?", String.class, admin))
+                .containsExactly("admin");
+        assertThat(auditCount(target)).isEqualTo(3);
+    }
+
+    @Test
+    void concurrentCrossBlockingLeavesOneActiveAdministratorAndOneAuditedMutation() throws Exception {
+        long first = account("first-admin@example.invalid", "admin");
+        long second = account("second-admin@example.invalid", "admin");
+        var firstToken = session(first);
+        var secondToken = session(second);
+        var ready = new CountDownLatch(2);
+        var start = new CountDownLatch(1);
+        try (var workers = Executors.newFixedThreadPool(2)) {
+            Callable<Integer> firstBlocksSecond = () -> {
+                ready.countDown();
+                if (!start.await(10, TimeUnit.SECONDS)) throw new AssertionError("Cross-block start timed out");
+                return authPost(ADMIN_ACCOUNTS + second + "/block", Map.of("reason", "Revoke second admin"), firstToken)
+                        .andReturn().getResponse().getStatus();
+            };
+            Callable<Integer> secondBlocksFirst = () -> {
+                ready.countDown();
+                if (!start.await(10, TimeUnit.SECONDS)) throw new AssertionError("Cross-block start timed out");
+                return authPost(ADMIN_ACCOUNTS + first + "/block", Map.of("reason", "Revoke first admin"), secondToken)
+                        .andReturn().getResponse().getStatus();
+            };
+            var firstResult = workers.submit(firstBlocksSecond);
+            var secondResult = workers.submit(secondBlocksFirst);
+            assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            assertThat(List.of(firstResult.get(20, TimeUnit.SECONDS), secondResult.get(20, TimeUnit.SECONDS)))
+                    .containsExactlyInAnyOrder(200, 401);
+        }
+        assertThat(jdbc.queryForObject("""
+                select count(*) from trekking.app_accounts a
+                join trekking.account_roles r on r.account_id = a.id
+                where r.role = 'admin' and a.status = 'active'
+                """, Long.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select count(*) from trekking.audit_logs where action = 'ACCOUNT_BLOCKED'", Long.class))
+                .isEqualTo(1);
+        assertThat(jdbc.queryForObject("""
+                select a.status from trekking.audit_logs log
+                join trekking.app_accounts a on a.id = log.actor_id where log.action = 'ACCOUNT_BLOCKED'
+                """, String.class)).isEqualTo("active");
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"customer", "company_manager", "guide", "support_staff", "content_staff", "accountant"})
+    @ValueSource(strings = {"customer", "guide"})
     void adminCanAssignEachFixedNonAdminRole(String role) throws Exception {
         long admin = account("admin@example.invalid", "admin");
         long target = account("target@example.invalid", "customer");
@@ -187,11 +255,12 @@ class AccountAdministrationIntegrationTests extends AccountAuthorizationTestSupp
         long target = account("target@example.invalid", "customer");
         var token = session(admin);
         for (List<String> invalid : List.of(List.<String>of(), List.of("admin"), List.of("customer", "admin"),
-                List.of("super_admin"), List.of("CUSTOMER"), List.of("customer", "customer"))) {
+                List.of("super_admin"), List.of("company_manager"), List.of("accountant"), List.of("support_staff"),
+                List.of("content_staff"), List.of("CUSTOMER"), List.of("customer", "customer"))) {
             authPut(ADMIN_ACCOUNTS + target + "/roles", Map.of("roles", invalid, "reason", "Forbidden input"), token)
                     .andExpect(status().isBadRequest());
         }
-        authPut(ADMIN_ACCOUNTS + target + "/roles", Map.of("roles", List.of("support_staff"), "reason", "  "), token)
+        authPut(ADMIN_ACCOUNTS + target + "/roles", Map.of("roles", List.of("guide"), "reason", "  "), token)
                 .andExpect(status().isBadRequest());
         assertThat(jdbc.queryForList("select role from trekking.account_roles where account_id = ?", String.class, target))
                 .containsExactly("customer");
@@ -256,7 +325,7 @@ class AccountAdministrationIntegrationTests extends AccountAuthorizationTestSupp
         jdbc.execute("alter table trekking.audit_logs add constraint qa_reject_role_audit check (reason <> 'force-role-audit-failure')");
         try {
             authPut(ADMIN_ACCOUNTS + target + "/roles",
-                    Map.of("roles", List.of("support_staff", "accountant"), "reason", "force-role-audit-failure"), token)
+                    Map.of("roles", List.of("customer"), "reason", "force-role-audit-failure"), token)
                     .andExpect(status().isServiceUnavailable());
             assertThat(jdbc.queryForList("select role from trekking.account_roles where account_id = ? order by role", String.class, target))
                     .containsExactly("customer", "guide");

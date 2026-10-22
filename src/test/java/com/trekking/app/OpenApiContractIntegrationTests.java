@@ -1,6 +1,8 @@
 package com.trekking.app;
 
 import com.trekking.app.features.auth.service.OtpMailSender;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.Locale;
 import java.util.Set;
@@ -44,30 +46,15 @@ class OpenApiContractIntegrationTests extends AuthTestInfrastructure {
             "POST /api/v1/admin/accounts/{id}/block",
             "POST /api/v1/admin/accounts/{id}/unblock",
             "PUT /api/v1/admin/accounts/{id}/roles",
-            "GET /api/v1/admin/accounts/{accountId}/financial-permissions",
-            "PUT /api/v1/admin/accounts/{accountId}/financial-permissions",
-            "POST /api/v1/companies",
-            "GET /api/v1/companies",
-            "GET /api/v1/companies/{id}",
-            "PUT /api/v1/companies/{id}",
-            "POST /api/v1/companies/{id}/resubmit",
-            "POST /api/v1/companies/{id}/license",
-            "GET /api/v1/companies/{id}/license",
-            "GET /api/v1/admin/companies",
-            "GET /api/v1/admin/companies/{id}",
-            "POST /api/v1/admin/companies/{id}/decision",
-            "GET /api/v1/admin/companies/{id}/license",
             "POST /api/v1/admin/policies",
+            "GET /api/v1/admin/policies",
+            "GET /api/v1/admin/policies/{policyId}",
             "POST /api/v1/admin/policies/{policyId}/versions",
-            "GET /api/v1/companies/{companyId}/agreement-policies",
-            "POST /api/v1/companies/{companyId}/agreements/otp",
-            "POST /api/v1/companies/{companyId}/agreements",
-            "GET /api/v1/companies/{companyId}/agreements",
-            "GET /api/v1/companies/{companyId}/agreements/{agreementId}",
+            "GET /api/v1/admin/policies/{policyId}/versions",
             "POST /api/v1/admin/staff/invitations",
             "POST /api/v1/admin/staff/invitations/{accountId}/resend",
-            "POST /api/v1/companies/{companyId}/guides/invitations",
-            "POST /api/v1/companies/{companyId}/guides/invitations/{accountId}/resend");
+            "POST /api/v1/admin/guides/invitations",
+            "POST /api/v1/admin/guides/invitations/{accountId}/resend");
 
     @Autowired MockMvc mvc;
     @Autowired ObjectMapper json;
@@ -84,7 +71,7 @@ class OpenApiContractIntegrationTests extends AuthTestInfrastructure {
     }
 
     @Test
-    void documentsExactlyAllFortyOneProductionOperations() {
+    void documentsTheSingleOperatorApiAndExportsTheValidatedSnapshot() throws Exception {
         var actual = new TreeSet<String>();
         for (var path : document.path("paths").properties()) {
             // Framework documentation and error routes are outside the production API inventory.
@@ -97,7 +84,17 @@ class OpenApiContractIntegrationTests extends AuthTestInfrastructure {
         }
         var expected = new HashSet<>(PUBLIC_OPERATIONS);
         expected.addAll(PROTECTED_OPERATIONS);
-        assertThat(actual).hasSize(41).containsExactlyInAnyOrderElementsOf(expected);
+        assertThat(actual).hasSize(26).containsExactlyInAnyOrderElementsOf(expected);
+        Files.createDirectories(Path.of("target"));
+        Files.writeString(Path.of("target/p1-openapi.json"), json.writerWithDefaultPrettyPrinter().writeValueAsString(document));
+    }
+
+    @Test
+    void removedPlatformAndFinancialGrantRoutesAreNotAdvertisedAsSupportedOperations() {
+        assertThat(document.path("paths").properties()).noneSatisfy(path ->
+                assertThat(path.getKey()).matches("/api/v1/(companies|admin/companies|agreements|partner/statements|admin/statements)(/.*)?"));
+        assertThat(document.path("paths").properties()).noneSatisfy(path ->
+                assertThat(path.getKey()).contains("financial-permissions"));
     }
 
     @Test

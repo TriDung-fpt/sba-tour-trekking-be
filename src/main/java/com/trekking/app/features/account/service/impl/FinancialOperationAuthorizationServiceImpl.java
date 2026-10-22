@@ -7,9 +7,6 @@ import com.trekking.app.features.account.service.FinancialOperationAuthorization
 import com.trekking.app.features.payment.entity.RefundRequest;
 import com.trekking.app.features.payment.enums.RefundStatus;
 import com.trekking.app.features.payment.repository.RefundRequestRepository;
-import com.trekking.app.features.statement.entity.CompanyStatement;
-import com.trekking.app.features.statement.enums.StatementStatus;
-import com.trekking.app.features.statement.repository.CompanyStatementRepository;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import org.springframework.http.HttpStatus;
@@ -22,37 +19,14 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 @Transactional(propagation = Propagation.MANDATORY)
 public class FinancialOperationAuthorizationServiceImpl implements FinancialOperationAuthorizationService {
     private final AuthorizationService authorization;
-    private final CompanyStatementRepository statements;
     private final RefundRequestRepository refunds;
     private final EntityManager entities;
 
     public FinancialOperationAuthorizationServiceImpl(AuthorizationService authorization,
-            CompanyStatementRepository statements, RefundRequestRepository refunds, EntityManager entities) {
+            RefundRequestRepository refunds, EntityManager entities) {
         this.authorization = authorization;
-        this.statements = statements;
         this.refunds = refunds;
         this.entities = entities;
-    }
-
-    @Override
-    public void requireSettlementApproval(long statementId) {
-        long actor = actor(Permission.SETTLEMENT_APPROVE);
-        var statement = statement(statementId);
-        if (statement.getStatus() != StatementStatus.DRAFT) {
-            throw conflict("SETTLEMENT_APPROVAL_NOT_ALLOWED", "Only a draft statement can be approved");
-        }
-        requireDifferentActor(actor, statement.getPreparedBy());
-    }
-
-    @Override
-    public void requirePayout(long statementId) {
-        long actor = actor(Permission.PAYOUT_RECORD);
-        var statement = statement(statementId);
-        if (statement.getStatus() != StatementStatus.APPROVED || statement.getApprovedBy() == null
-                || statement.getApprovedAt() == null) {
-            throw conflict("PAYOUT_NOT_ALLOWED", "Only an approved statement can be paid");
-        }
-        requireDifferentActor(actor, statement.getPreparedBy(), statement.getApprovedBy());
     }
 
     @Override
@@ -83,14 +57,6 @@ public class FinancialOperationAuthorizationServiceImpl implements FinancialOper
         }
         authorization.require(permission);
         return authorization.currentAccountId();
-    }
-
-    private CompanyStatement statement(long statementId) {
-        var statement = statements.findForUpdate(statementId).orElseThrow(
-                FinancialOperationAuthorizationServiceImpl::notFound);
-        // A caller may already have loaded this entity before another transaction committed.
-        entities.refresh(statement, LockModeType.PESSIMISTIC_WRITE);
-        return statement;
     }
 
     private RefundRequest refund(long refundId) {

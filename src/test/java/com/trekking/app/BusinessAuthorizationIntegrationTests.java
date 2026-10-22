@@ -63,8 +63,7 @@ class BusinessAuthorizationIntegrationTests extends AccountAuthorizationTestSupp
     void fixture() {
         owner = account("owner@example.invalid", "customer");
         admin = account("admin@example.invalid", "admin");
-        long companyId = company(admin, "Booking scope company");
-        scheduleId = schedule(companyId);
+        scheduleId = internalSchedule();
         long policyId = jdbc.queryForObject("""
                 insert into trekking.policies(code, title, kind, created_by)
                 values ('booking-scope', 'Cancellation', 'cancellation', ?) returning id
@@ -74,12 +73,12 @@ class BusinessAuthorizationIntegrationTests extends AccountAuthorizationTestSupp
                 values (?, 1, 'Test cancellation terms', current_timestamp - interval '1 day') returning id
                 """, Long.class, policyId);
         bookingId = jdbc.queryForObject("""
-                insert into trekking.bookings(booking_code, idempotency_key, customer_id, schedule_id, company_id,
+                insert into trekking.bookings(booking_code, idempotency_key, customer_id, schedule_id,
                     participant_count, includes_equipment, base_price_vnd, equipment_fee_vnd, deposit_percent,
                     cancellation_policy_version_id, policy_snapshot, hold_expires_at, balance_due_at)
-                values ('SCOPE-BOOKING', 'scope-key', ?, ?, ?, 2, true, 100000, 20000, 30, ?, '{}',
+                values ('SCOPE-BOOKING', 'scope-key', ?, ?, 2, true, 100000, 20000, 30, ?, '{}',
                     current_timestamp + interval '1 hour', current_timestamp + interval '9 days') returning id
-                """, Long.class, owner, scheduleId, companyId, versionId);
+                """, Long.class, owner, scheduleId, versionId);
         token = session(owner);
         probe.resetLock();
     }
@@ -281,7 +280,7 @@ class BusinessAuthorizationIntegrationTests extends AccountAuthorizationTestSupp
         complete();
         long participantId = participant(owner, true);
         jdbc.update("""
-                insert into trekking.reviews(booking_id, author_id, participant_id, tour_rating, company_rating,
+                insert into trekking.reviews(booking_id, author_id, participant_id, tour_rating, service_rating,
                     status, moderated_by, moderation_reason) values (?, ?, ?, 5, 4, ?, ?, 'Test moderation')
                 """, bookingId, owner, participantId, state, admin);
         review().andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("REVIEW_ALREADY_EXISTS"));

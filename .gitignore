@@ -39,7 +39,7 @@ build/
 # Browser test artifacts
 .playwright-mcp/
 .frontend-work/
-data/company-licenses/
+data/
 .module-one-verify.log
 
 # Generated Python/tool caches

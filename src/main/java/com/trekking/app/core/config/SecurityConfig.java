@@ -13,6 +13,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
@@ -62,8 +63,12 @@ public class SecurityConfig {
                         .requireCsrfProtectionMatcher(r -> !List.of("GET", "HEAD", "OPTIONS", "TRACE").contains(r.getMethod())
                                 && r.getRequestURI().substring(r.getContextPath().length()).startsWith("/api/v1/auth/")))
                 .authorizeHttpRequests(a -> a
-                        .requestMatchers("/api/v1/auth/me").authenticated()
-                        .requestMatchers("/api/v1/auth/**", "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html", "/error").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/auth/csrf").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/register", "/api/v1/auth/verify-email",
+                                "/api/v1/auth/resend-verification", "/api/v1/auth/forgot-password",
+                                "/api/v1/auth/reset-password", "/api/v1/auth/login", "/api/v1/auth/google",
+                                "/api/v1/auth/refresh", "/api/v1/auth/logout", "/api/v1/auth/activate-account").permitAll()
+                        .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html", "/error").permitAll()
                         .anyRequest().authenticated())
                 .exceptionHandling(e -> e.authenticationEntryPoint(errors).accessDeniedHandler(errors))
                 .oauth2ResourceServer(o -> o.jwt(j -> j.jwtAuthenticationConverter(converter))

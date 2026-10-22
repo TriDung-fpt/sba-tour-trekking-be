@@ -2,8 +2,7 @@ package com.trekking.app.features.tour.entity;
 
 import com.trekking.app.core.common.entity.TimestampedEntity;
 import com.trekking.app.features.account.entity.AppAccount;
-import com.trekking.app.features.company.entity.Company;
-import com.trekking.app.features.company.entity.PolicyVersion;
+import com.trekking.app.features.policy.entity.PolicyVersion;
 import com.trekking.app.features.tour.enums.DifficultyLevel;
 import com.trekking.app.features.tour.enums.TourStatus;
 import jakarta.persistence.*;
@@ -25,9 +24,6 @@ public class Tour extends TimestampedEntity {
     @Setter(AccessLevel.NONE)
     @Column(name = "id", nullable = false)
     private Long id;
-
-    @Column(name = "company_id", nullable = false)
-    private Long companyId;
 
     @Column(name = "title", nullable = false, length = 250)
     private String title;
@@ -69,11 +65,6 @@ public class Tour extends TimestampedEntity {
 
     @Column(name = "review_note", columnDefinition = "text")
     private String reviewNote;
-
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "company_id", referencedColumnName = "id", insertable = false, updatable = false)
-    @Setter(AccessLevel.NONE)
-    private Company company;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = true)
     @JoinColumn(name = "cancellation_policy_version_id", referencedColumnName = "id", insertable = false, updatable = false)

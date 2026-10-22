@@ -13,7 +13,7 @@ public final class InvitationRequests {
     public record Staff(@NotBlank @Email @Size(max = 254) String email,
                         @NotBlank @Size(max = 200) String fullName,
                         @Size(max = 30) String phone,
-                        @NotBlank @Pattern(regexp = "support_staff|content_staff|accountant") String role) {
+                        @NotBlank @Pattern(regexp = "admin") String role) {
         public Staff { email = AuthInputNormalizer.email(email); fullName = AuthInputNormalizer.fullName(fullName); }
     }
 
