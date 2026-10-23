@@ -85,6 +85,8 @@ class OpenApiContractIntegrationTests extends AuthTestInfrastructure {
         var expected = new HashSet<>(PUBLIC_OPERATIONS);
         expected.addAll(PROTECTED_OPERATIONS);
         assertThat(actual).hasSize(26).containsExactlyInAnyOrderElementsOf(expected);
+        assertThat(document.path("paths").properties().stream()
+                .filter(path -> path.getKey().startsWith("/api/v1/")).count()).isEqualTo(24L);
         Files.createDirectories(Path.of("target"));
         Files.writeString(Path.of("target/p1-openapi.json"), json.writerWithDefaultPrettyPrinter().writeValueAsString(document));
     }

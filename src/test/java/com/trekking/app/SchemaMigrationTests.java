@@ -159,7 +159,7 @@ class SchemaMigrationTests extends AuthTestInfrastructure {
                 assertThat(value(test, "select booking_id from trekking.support_requests where id=1")).isNull();
                 assertThat(value(test, "select body from trekking.support_messages where id=1")).isEqualTo("Original support message");
                 assertThat(value(test, "select support_request_id from trekking.chats where id=1")).isEqualTo(1L);
-                assertThat(value(test, "select service_rating from trekking.reviews where id=1")).isEqualTo((short) 4);
+                assertThat(((Number) value(test, "select service_rating from trekking.reviews where id=1")).intValue()).isEqualTo(4);
                 assertThat(value(test, "select operator_reply from trekking.reviews where id=1")).isEqualTo("Original operator reply");
                 rejects(test, "update trekking.bookings set base_price_vnd=1 where id=1", "P0001");
                 rejects(test, "update trekking.policy_versions set content='Changed' where id=2", "P0001");
@@ -168,6 +168,10 @@ class SchemaMigrationTests extends AuthTestInfrastructure {
                 rejects(test, "delete from trekking.customer_refunds where id=1", "P0001");
                 rejects(test, "update legacy_archive.company_transfers set amount_vnd=1 where id=1", "23514");
                 rejects(test, "delete from legacy_archive.bookings where id=1", "23514");
+                rejects(test, "truncate legacy_archive.company_transfers", "23514");
+                rejects(test, "truncate legacy_archive.snapshot_manifest", "23514");
+                assertThat(value(test, "select count(*) from legacy_archive.company_transfers")).isEqualTo(1L);
+                assertThat(value(test, "select count(*) from legacy_archive.snapshot_manifest")).isEqualTo(18L);
                 rejects(test, "update trekking.reviews set service_rating=0 where id=1", "23514");
                 rejects(test, "insert into trekking.support_requests(requester_id,subject,description,category) values (1,'Invalid','Invalid','booking')", "23514");
             } finally {

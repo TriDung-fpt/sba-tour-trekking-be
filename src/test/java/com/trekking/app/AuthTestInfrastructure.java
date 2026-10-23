@@ -46,6 +46,8 @@ public abstract class AuthTestInfrastructure {
                 + POSTGRES.getMappedPort(5432) + "/auth_test?currentSchema=trekking");
         registry.add("spring.datasource.username", () -> "auth_test");
         registry.add("spring.datasource.password", () -> "auth_test");
+        // SQL migrations must produce the complete schema; Hibernate must not repair missing columns or constraints.
+        registry.add("spring.jpa.hibernate.ddl-auto", () -> "validate");
         registry.add("spring.data.redis.host", REDIS::getHost);
         registry.add("spring.data.redis.port", () -> REDIS.getMappedPort(6379));
         registry.add("spring.data.redis.password", () -> "");

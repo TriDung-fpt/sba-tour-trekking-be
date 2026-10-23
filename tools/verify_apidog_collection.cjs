@@ -34,6 +34,8 @@ for (const entry of environment.values) {
 
 function syntheticValue(key) {
     if (key === 'baseUrl') return 'http://localhost:8080';
+    if (key === 'activeActor') return 'customer';
+    if (key === 'activationRole') return 'guide';
     if (/Id$/.test(key)) return '123';
     if (/Otp$/.test(key)) return '123456';
     if (/Email$/.test(key)) return 'qa@example.invalid';
@@ -101,7 +103,10 @@ for (const [url, methods] of Object.entries(openapi.paths)) {
 const covered = new Set(requests.map(item => item.request.method + ' ' + canonicalPath(item.request.url.raw.replace('{{baseUrl}}', '').split('?')[0])));
 for (const operation of documented) check(covered.has(operation), 'Missing OpenAPI operation: ' + operation);
 for (const operation of covered) check(documented.has(operation), 'Unknown operation in collection: ' + operation);
-assert.equal(documented.size, 41, 'Expected 41 current API operations');
+assert.equal(documented.size, 26, 'Expected 26 current API operations');
+assert.equal(requests.length, 26, 'One request is required per current operation');
+assert.equal(Object.keys(openapi.paths).length, 24, 'Expected 24 API paths');
+check(!requests.some(item => /companies|agreements|financial-permissions|license/.test(item.request.url.raw)), 'Removed business routes remain in collection');
 
 // Implement just the public Chai methods used by these scripts. Unsupported methods fail.
 function expect(actual, negated = false) {
@@ -133,7 +138,7 @@ function harness(item, options = {}) {
     const responseHeaders = options.headers || [];
     const pm = {
         environment: {get: key => values[key], set: (key, value) => { values[key] = value; }},
-        request: {headers: {upsert: header => { headers[header.key.toLowerCase()] = header.value; }}},
+        request: {url: {toString: () => item.request.url.raw}, headers: {upsert: header => { headers[header.key.toLowerCase()] = header.value; }}},
         sendRequest(request, callback) {
             sent++;
             assert.equal(request.method, 'GET');
@@ -182,44 +187,81 @@ for (const item of requests) {
 }
 
 const authRequests = requests.filter(item => source(item).includes('data.accessToken'));
-check(authRequests.length >= 6, 'Missing role login/refresh scenarios');
+assert.equal(authRequests.length, 3, 'Expected login, refresh and Google token capture operations');
+const roleNames = ['customer', 'admin', 'staff', 'guide', 'google'];
+let authCaptures = 0;
 for (const item of authRequests) {
-    const match = source(item).match(/pm\.environment\.set\('([^']+)Token', data\.accessToken\)/);
-    check(Boolean(match), item.name + ': missing token capture');
-    const role = match[1];
-    const data = {accessToken: 'exact-access-token', tokenType: 'Bearer', expiresIn: 900, account: {id: 456}};
-    const mock = harness(item, {code: 200, data, headers: [{key: 'Set-Cookie', value: 'trekking_refresh=exact-refresh-token; Path=/api/v1/auth; HttpOnly; SameSite=Lax'}]});
+    const google = item.request.url.raw.endsWith('/google');
+    for (const role of google ? ['google'] : ['customer', 'admin', 'staff', 'guide']) {
+        const values = {activeActor: role};
+        const data = {accessToken: 'exact-access-token', tokenType: 'Bearer', expiresIn: 900, account: {id: 456}};
+        const headers = [{key: 'Set-Cookie', value: 'trekking_refresh=exact-refresh-token; Path=/api/v1/auth; HttpOnly; SameSite=Lax'}];
+        const mock = harness(item, {code: 200, values, data, headers});
+        mock.run('prerequest');
+        assert.equal(mock.values[role + 'Token'], '', item.name + ': stale token was not cleared');
+        assert.equal(mock.values[role + 'RefreshToken'], '', item.name + ': stale refresh cookie was not cleared');
+        for (const other of roleNames.filter(value => value !== role)) {
+            assert.equal(mock.values[other + 'Token'], synthetic[other + 'Token'], item.name + ': login cleared another role');
+            assert.equal(mock.values[other + 'RefreshToken'], synthetic[other + 'RefreshToken'], item.name + ': login cleared another refresh cookie');
+        }
+        if (item.request.url.raw.endsWith('/refresh')) {
+            check(mock.headers.cookie.includes('trekking_refresh=' + synthetic[role + 'RefreshToken']), item.name + ': refresh must send prior cookie despite clearing outputs');
+        }
+        mock.run('test');
+        assert.deepEqual(mock.failures, [], item.name + ': synthetic AuthResponse failed');
+        assert.equal(mock.values[role + 'Token'], 'exact-access-token');
+        assert.equal(mock.values[role + 'RefreshToken'], 'exact-refresh-token');
+        assert.equal(mock.values[role + 'Id'], '456');
+        const missingCookie = harness(item, {code: 200, values, data});
+        missingCookie.run('test');
+        check(missingCookie.failures.length > 0, item.name + ': missing refresh cookie must fail');
+        assert.equal(missingCookie.values[role + 'Token'], synthetic[role + 'Token'], 'Incomplete auth response saved a token');
+        authCaptures++;
+    }
+}
+
+const logout = requests.find(item => item.request.url.raw.endsWith('/logout'));
+for (const actor of roleNames) {
+    const mock = harness(logout, {code: 204, values: {activeActor: actor}});
     mock.run('prerequest');
-    assert.equal(mock.values[role + 'Token'], '');
-    assert.equal(mock.values[role + 'RefreshToken'], '');
-    for (const other of ['customer', 'other', 'admin', 'accountant', 'guide', 'google'].filter(value => value !== role)) {
-        assert.equal(mock.values[other + 'Token'], synthetic[other + 'Token'], item.name + ': login cleared another role');
-    }
-    if (item.request.url.raw.endsWith('/refresh')) {
-        check(mock.headers.cookie.includes('trekking_refresh=' + synthetic[role + 'RefreshToken']), item.name + ': refresh must send prior cookie despite clearing outputs');
-    }
+    check(mock.headers.cookie.includes('trekking_refresh=' + synthetic[actor + 'RefreshToken']), 'Logout used another actor refresh cookie');
     mock.run('test');
-    assert.deepEqual(mock.failures, [], item.name + ': synthetic AuthResponse failed');
-    assert.equal(mock.values[role + 'Token'], 'exact-access-token');
-    assert.equal(mock.values[role + 'RefreshToken'], 'exact-refresh-token');
-    assert.equal(mock.values[role + 'Id'], '456');
-    const missingCookie = harness(item, {code: 200, data});
-    missingCookie.run('test');
-    check(missingCookie.failures.length > 0, item.name + ': missing refresh cookie must fail');
+    assert.deepEqual(mock.failures, []);
+    assert.equal(mock.values[actor + 'Token'], '');
+    assert.equal(mock.values[actor + 'RefreshToken'], '');
+    for (const other of roleNames.filter(role => role !== actor)) {
+        assert.equal(mock.values[other + 'Token'], synthetic[other + 'Token']);
+        assert.equal(mock.values[other + 'RefreshToken'], synthetic[other + 'RefreshToken']);
+    }
 }
 
-const binaryRequests = requests.filter(item => item.request.method === 'GET' && expectedStatus(item) === 200 && item.request.url.raw.endsWith('/license'));
-check(binaryRequests.length >= 2, 'Missing binary license download coverage');
-for (const item of binaryRequests) {
-    const mock = harness(item, {code: 200, binary: true, headers: [
-        {key: 'Content-Type', value: 'application/octet-stream'},
-        {key: 'Content-Disposition', value: 'attachment; filename="qa.pdf"'},
-        {key: 'Cache-Control', value: 'no-store'},
-    ]});
-    mock.run('test');
-    assert.deepEqual(mock.failures, [], item.name + ': binary response must not require valid JSON');
+const activation = requests.find(item => item.request.url.raw.endsWith('/activate-account'));
+for (const role of ['staff', 'guide']) {
+    const mock = harness(activation, {values: {activationRole: role}});
+    mock.run('prerequest');
+    assert.equal(mock.values.invitationEmail, synthetic[role + 'Email']);
+    assert.equal(mock.values.activationPassword, synthetic[role + 'Password']);
+}
+const reset = requests.find(item => item.request.url.raw.endsWith('/reset-password'));
+const resetMock = harness(reset, {code: 200});
+resetMock.run('test');
+assert.deepEqual(resetMock.failures, []);
+assert.equal(resetMock.values.customerPassword, synthetic.newCustomerPassword);
+assert.equal(resetMock.values.customerToken, '');
+assert.equal(resetMock.values.customerRefreshToken, '');
+assert.equal(resetMock.values.adminToken, synthetic.adminToken);
+
+const fixture = readJson('docs/api/testing/fixtures/policy-version-body.json');
+assert.deepEqual(Object.keys(fixture).sort(), ['content', 'effectiveFrom']);
+check(typeof fixture.content === 'string' && fixture.content.trim().length > 0, 'Empty policy content fixture');
+check(Number.isFinite(Date.parse(fixture.effectiveFrom)), 'Invalid fixture effectiveFrom');
+for (const entry of environment.values) {
+    if (/password|token|otp/i.test(entry.key)) {
+        assert.equal(entry.value, '', 'Shared environment must not contain credentials: ' + entry.key);
+        assert.equal(entry.type, 'secret', 'Sensitive environment entry not marked secret: ' + entry.key);
+    }
 }
 
-console.log(`PASS: ${requests.length} cases, ${documented.size}/41 API operations, ${compiledScripts} scripts compiled, ${jsonBodies} JSON bodies, ${assertions} structural/behavior checks.`);
-console.log(`PASS: fresh CSRF, role token isolation, ${authRequests.length} auth captures, refresh prior cookie, wrong-status output guards, missing-cookie detection, ${binaryRequests.length} binary responses.`);
-console.log('Offline validation only; no API requests, OTP delivery, uploaded files, or live database changes were executed.');
+console.log(`PASS: ${requests.length} cases, ${documented.size}/26 API operations, ${compiledScripts} scripts compiled, ${jsonBodies} JSON bodies, ${assertions} structural/behavior checks.`);
+console.log(`PASS: fresh CSRF, actor isolation, ${authCaptures} auth captures, refresh/logout prior cookie, wrong-status output guards, missing-cookie detection, activation actor selection and reset cleanup.`);
+console.log('Offline validation only; no API requests, OTP delivery or live database changes were executed.');

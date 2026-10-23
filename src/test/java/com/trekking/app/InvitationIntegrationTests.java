@@ -102,8 +102,8 @@ class InvitationIntegrationTests extends AccountAuthorizationTestSupport {
                 .andExpect(jsonPath("$.companyId").doesNotExist());
         long invited = id();
         assertThat(jdbc.queryForList("select role from trekking.account_roles where account_id = ?", String.class, invited)).containsExactly("guide");
-        assertThat(jdbc.queryForObject("select company_id from trekking.guides where account_id = ?", Long.class, invited)).isNull();
-        assertThat(jdbc.queryForObject("select count(*) from trekking.companies", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("select active from trekking.guides where account_id = ?", Boolean.class, invited)).isTrue();
+        assertThat(jdbc.queryForObject("select count(*) from trekking.guides where account_id = ?", Integer.class, invited)).isEqualTo(1);
         clearCooldown();
         authPost(STAFF + "/" + invited + "/resend", Map.of(), token).andExpect(status().isNotFound());
         authPost(guidePath() + "/" + invited + "/resend", Map.of(), token).andExpect(status().isAccepted());
@@ -285,16 +285,15 @@ class InvitationIntegrationTests extends AccountAuthorizationTestSupport {
     }
 
     @Test
-    void guideActivationRejectsDisabledGuideAndLegacyCompanyProfile() throws Exception {
+    void guideActivationRejectsDisabledAndMissingSystemGuideProfiles() throws Exception {
         long admin = account("admin@example.invalid", "admin");
-        long company = company(admin, "Approved Company");
         authPost(guidePath(), Map.of("email", EMAIL, "fullName", "Guide"), session(admin)).andExpect(status().isCreated());
         String code = code();
         jdbc.update("update trekking.guides set active = false where account_id = ?", id());
         activate(code).andExpect(status().isBadRequest());
-        jdbc.update("update trekking.guides set active = true where account_id = ?", id());
-        jdbc.update("update trekking.guides set company_id = ? where account_id = ?", company, id());
+        jdbc.update("delete from trekking.guides where account_id = ?", id());
         activate(code).andExpect(status().isBadRequest());
+        assertThat(jdbc.queryForObject("select must_change_password from trekking.app_accounts where id = ?", Boolean.class, id())).isTrue();
     }
 
     @Test
@@ -367,13 +366,19 @@ class InvitationIntegrationTests extends AccountAuthorizationTestSupport {
         assertThat(countEmail()).isZero();
     }
 
-    @Test
-    void oldContextCannotActivateEvenWhenCurrentRoleIsAdmin() throws Exception {
+    @ParameterizedTest
+    @ValueSource(strings = {"v1", "v2"})
+    void oldContextCannotActivateEvenWhenCurrentRoleIsAdmin(String contextVersion) throws Exception {
         invite();
         long invited = id();
         long version = jdbc.queryForObject("select session_version from trekking.app_accounts where id = ?", Long.class, invited);
-        String oldContext = crypto.hmac("invitation:activate:" + invited + ":" + EMAIL + ":"
-                + crypto.sessionFingerprint(passwordHash(invited), version) + ":ADMIN:null");
+        long authorizationVersion = jdbc.queryForObject("select authorization_version from trekking.app_accounts where id = ?", Long.class, invited);
+        String oldContext = contextVersion.equals("v1")
+                ? crypto.hmac("invitation:activate:" + invited + ":" + EMAIL + ":"
+                    + crypto.sessionFingerprint(passwordHash(invited), version) + ":ADMIN:null")
+                : crypto.hmac("invitation:activate:v2:" + invited + ":" + EMAIL + ":"
+                    + crypto.sessionFingerprint(passwordHash(invited), version) + ":"
+                    + authorizationVersion + ":ADMIN:null");
         clearCooldown();
         assertThat(invitationStore.issue(EMAIL, crypto.hmac("invitation:activate:otp:" + EMAIL + ":123456"), oldContext)).isTrue();
         activate("123456").andExpect(status().isBadRequest());

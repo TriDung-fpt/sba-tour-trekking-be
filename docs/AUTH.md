@@ -1,7 +1,8 @@
 # Authentication
 
-Current backend API inventory, financial grants, shared business guards and
-verification notes: [Module 1 backend](MODULE_1_BACKEND.md).
+Current model: ADMIN, GUIDE and CUSTOMER. Guides belong to account and the operator.
+Company/agreement/partner-settlement and financial-grant APIs have been removed.
+See [current API inventory](API_DOCS_VI.md) and [P0/P1 contract](P0_P1_IMPLEMENTATION.md).
 
 Auth uses the existing account entities and PostgreSQL tables. OTPs, refresh
 token hashes, rate limits and session metadata are stored in Redis. Google sign-in
@@ -10,30 +11,21 @@ uses a unique, nullable `app_accounts.google_subject` to persist Google's stable
 
 ## Database upgrade
 
-For an existing database, apply `schema/migrations/001_add_google_subject.sql`
-then `schema/migrations/002_add_account_session_version.sql`,
-`schema/migrations/003_add_cooperation_policy_terms.sql` and
-`schema/migrations/004_add_financial_permissions.sql` once before starting
-this backend version. For example, with the Compose
-database (replace the username and database with your settings):
+Use the ordered SQL [migration registry](../schema/migrations/README.md).
+Fresh databases load the baseline then 001 through 006. For existing databases,
+back up and stop writers first; apply only missing migrations. A database at 004
+needs 005 then 006; one at 005 needs only 006. Existing Docker volumes do not rerun
+init scripts. Hibernate ddl-auto does not replace these migrations.
 
-```powershell
-Get-Content schema/migrations/001_add_google_subject.sql | docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U your_database_user -d trekking_db
-Get-Content schema/migrations/002_add_account_session_version.sql | docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U your_database_user -d trekking_db
-Get-Content schema/migrations/003_add_cooperation_policy_terms.sql | docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U your_database_user -d trekking_db
-Get-Content schema/migrations/004_add_financial_permissions.sql | docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U your_database_user -d trekking_db
-```
+005 limits current roles to admin/guide/customer and invalidates affected sessions,
+without promoting old staff to ADMIN. 006 archives original evidence outside the
+active schema, removes company/grant/partner-settlement structures and keeps
+customer money and locked snapshots. Cooperation references from active
+booking/tour/AI documents fail preflight and require review before migration.
 
-The migration preserves existing accounts, passwords, roles and sessions.
-Fresh Compose volumes and Testcontainers load the baseline followed by these
-migrations. Restarting an existing volume does not execute init scripts;
-apply the upgrade explicitly. The deployed baseline is kept unchanged.
-
-Migration 004 starts every account without financial grants. An ADMIN must
-explicitly grant each duty to an activated ACCOUNTANT. Role changes increment a
-separate authorization version for signing challenges; removing then regranting
-a role cannot revive an old agreement OTP. Removing ACCOUNTANT deletes its
-financial grants. Existing JWT/refresh sessions keep their existing semantics.
+After 006, run the matching new backend. Recovery requires a database backup and
+its matching application; do not replay old migrations or automatically regrant
+archived roles. No production database migration is performed by editing this repo.
 
 ## Local setup
 
@@ -105,9 +97,8 @@ HTTPS or localhost. See the frontend `docs/MODULE_1.md` for its fallback behavio
 Guide/staff invitations use a separate activation purpose. Before activation,
 unverified invitation accounts cannot use verify-email or reset-password to
 bypass the initial-password flow. Existing verified accounts marked for a password
-change can still complete the normal reset flow. Provisioning, agreement APIs,
-migration 003 and release checks are described in
-[Module 1 implementation](MODULE_1_IMPLEMENTATION.md).
+change can still complete the normal reset flow. Provisioning and activation are described in
+[account/invitation APIs](api/ACCOUNTS_INVITATIONS.md).
 
 ## Google sign-in
 
@@ -199,7 +190,7 @@ the email arrives before using its code in `POST /api/v1/auth/verify-email`.
   Old Redis keys disappear at their original TTL; they cannot authenticate.
 - Account blocking increments a PostgreSQL session version in the same transaction
   as status and audit. Old access/refresh sessions remain invalid after unblock.
-  See [Module 1 authorization](MODULE_1_AUTHORIZATION.md) for the new APIs and guards.
+  See [P0/P1](P0_P1_IMPLEMENTATION.md) for the current APIs and guards.
 - Redis scripts atomically consume OTPs and rotate tokens. Invalid OTP attempt
   counters persist even when the surrounding database transaction rolls back.
   If a database update fails after consuming a code, request another code.

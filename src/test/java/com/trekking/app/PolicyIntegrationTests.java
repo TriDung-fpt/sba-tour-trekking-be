@@ -62,7 +62,7 @@ class PolicyIntegrationTests extends AccountAuthorizationTestSupport {
 
     @ParameterizedTest
     @ValueSource(strings = {"cooperation", "GENERAL", "unknown"})
-    void creationRejectsRetiredOrUnknownPolicyKinds(String kind) throws Exception {
+    void creationRejectsRemovedOrUnknownPolicyKinds(String kind) throws Exception {
         long admin = account("admin@example.invalid", "admin");
         authPost(POLICIES, Map.of("code", "terms", "title", "Terms", "kind", kind), session(admin)).andExpect(status().isBadRequest());
     }

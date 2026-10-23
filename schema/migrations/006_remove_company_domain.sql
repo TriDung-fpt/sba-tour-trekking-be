@@ -61,11 +61,15 @@ BEGIN
         INSERT INTO legacy_archive.snapshot_manifest(source_table, row_count) VALUES (source_name, archived_count);
         EXECUTE format('CREATE TRIGGER trg_archive_read_only BEFORE INSERT OR UPDATE OR DELETE ON legacy_archive.%I '
             || 'FOR EACH ROW EXECUTE FUNCTION legacy_archive.reject_write()', source_name);
+        EXECUTE format('CREATE TRIGGER trg_archive_no_truncate BEFORE TRUNCATE ON legacy_archive.%I '
+            || 'FOR EACH STATEMENT EXECUTE FUNCTION legacy_archive.reject_write()', source_name);
     END LOOP;
 END;
 $$;
 CREATE TRIGGER trg_archive_manifest_read_only BEFORE INSERT OR UPDATE OR DELETE
 ON legacy_archive.snapshot_manifest FOR EACH ROW EXECUTE FUNCTION legacy_archive.reject_write();
+CREATE TRIGGER trg_archive_manifest_no_truncate BEFORE TRUNCATE
+ON legacy_archive.snapshot_manifest FOR EACH STATEMENT EXECUTE FUNCTION legacy_archive.reject_write();
 
 -- Keep formerly agreed versions immutable without inventing approval timestamps
 -- or retaining an active dependency on agreements or archived company records.
@@ -73,6 +77,10 @@ ALTER TABLE trekking.policy_versions ADD COLUMN locked_for_history BOOLEAN NOT N
 DROP TRIGGER trg_policy_version_immutable ON trekking.policy_versions;
 UPDATE trekking.policy_versions version SET locked_for_history = TRUE
 WHERE EXISTS (SELECT 1 FROM trekking.company_agreements agreement WHERE agreement.policy_version_id = version.id);
+
+-- Original agreement rows are archived and their policy history locks captured.
+-- Remove this FK before deleting cooperation versions, even when signed receipts exist.
+ALTER TABLE trekking.company_agreements DROP CONSTRAINT company_agreements_policy_version_id_fkey;
 
 DELETE FROM trekking.policy_versions version USING trekking.policies policy
 WHERE version.policy_id = policy.id AND policy.kind = 'cooperation';
