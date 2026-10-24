@@ -14,6 +14,7 @@ import com.trekking.app.features.tour.service.TourMediaService;
 import com.trekking.app.features.tour.storage.CloudinaryImageStorage;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.http.HttpStatus;
@@ -101,7 +102,8 @@ public class TourMediaServiceImpl implements TourMediaService {
         var ids = request.mediaIds();
         if (ids.size() != new HashSet<>(ids).size() || !byId.keySet().equals(new HashSet<>(ids))) {
             throw new TourException(HttpStatus.BAD_REQUEST, "INVALID_MEDIA_ORDER",
-                    "mediaIds must contain every image of this tour exactly once");
+                    "mediaIds must contain every image of this tour exactly once",
+                    Map.of("mediaIds", "Must contain every image of this tour exactly once, without duplicate IDs"));
         }
         for (int i = 0; i < ids.size(); i++) {
             byId.get(ids.get(i)).setDisplayOrder(i);

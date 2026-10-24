@@ -31,7 +31,8 @@ public class CloudinaryImageStorage {
             throw invalidImage();
         }
         if (file.getSize() > MAX_BYTES) {
-            throw new TourException(HttpStatus.PAYLOAD_TOO_LARGE, "MAX_UPLOAD_SIZE", "File must not exceed 5 MB");
+            throw new TourException(HttpStatus.PAYLOAD_TOO_LARGE, "MAX_UPLOAD_SIZE", "File must not exceed 5 MB",
+                    Map.of("file", "Must not exceed 5 MB"));
         }
         byte[] bytes;
         try {
@@ -112,7 +113,8 @@ public class CloudinaryImageStorage {
     }
 
     private static TourException invalidImage() {
-        return new TourException(HttpStatus.BAD_REQUEST, "INVALID_IMAGE", "File must be a non-empty JPEG, PNG or WebP image");
+        return new TourException(HttpStatus.BAD_REQUEST, "INVALID_IMAGE", "File must be a non-empty JPEG, PNG or WebP image",
+                Map.of("file", "Choose a non-empty JPEG, PNG or WebP image"));
     }
 
     private static TourException unavailable() {

@@ -8,6 +8,7 @@ import com.trekking.app.features.tour.controller.TourScheduleController;
 import com.trekking.app.features.tour.entity.Tour;
 import com.trekking.app.features.tour.entity.TourSchedule;
 import com.trekking.app.features.tour.enums.ScheduleStatus;
+import com.trekking.app.features.tour.enums.TourStatus;
 import com.trekking.app.features.tour.exception.TourGlobalExceptionHandler;
 import com.trekking.app.features.tour.mapper.TourMapper;
 import com.trekking.app.features.tour.repository.TourRepository;
@@ -16,6 +17,7 @@ import com.trekking.app.features.tour.repository.TourScheduleRepository;
 import com.trekking.app.features.tour.service.impl.TourServiceImpl;
 import java.util.List;
 import java.util.Optional;
+import java.time.OffsetDateTime;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mapstruct.factory.Mappers;
@@ -29,6 +31,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -93,6 +96,9 @@ class TourCrudTests {
                 .andExpect(jsonPath("$.title").value("Ta Nang"))
                 .andExpect(jsonPath("$.status").value("DRAFT"));
         var tour = new Tour();
+        tour.setReviewedBy(7L);
+        tour.setReviewedAt(OffsetDateTime.parse("2026-10-24T09:00:00+07:00"));
+        tour.setCancellationPolicyVersionId(9L);
         when(tours.findLockedById(1)).thenReturn(Optional.of(tour));
         mvc.perform(put(TOURS + "/1").contentType(MediaType.APPLICATION_JSON).content("""
                 {"title":"Updated tour","durationDays":3,"status":"PUBLISHED"}
@@ -107,6 +113,34 @@ class TourCrudTests {
                 {"title":"Null status update","durationDays":3,"status":null}
                 """))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("PUBLISHED"));
+    }
+
+    @Test
+    void publishingReportsAllMissingDatabaseRequirementsBeforeSaving() throws Exception {
+        var tour = new Tour();
+        tour.setTitle("Original tour");
+        when(tours.findLockedById(1)).thenReturn(Optional.of(tour));
+        mvc.perform(put(TOURS + "/1").contentType(MediaType.APPLICATION_JSON).content("""
+                {"title":"Updated tour","status":"PUBLISHED"}
+                """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("TOUR_CANNOT_BE_PUBLISHED"))
+                .andExpect(jsonPath("$.fieldErrors.reviewedBy").exists())
+                .andExpect(jsonPath("$.fieldErrors.reviewedAt").exists())
+                .andExpect(jsonPath("$.fieldErrors.cancellationPolicyVersionId").exists());
+        assertThat(tour.getStatus()).isEqualTo(TourStatus.DRAFT);
+        assertThat(tour.getTitle()).isEqualTo("Original tour");
+
+        tour.setReviewedBy(7L);
+        tour.setReviewedAt(OffsetDateTime.parse("2026-10-24T09:00:00+07:00"));
+        mvc.perform(put(TOURS + "/1").contentType(MediaType.APPLICATION_JSON).content("""
+                {"title":"Updated tour","status":"PUBLISHED"}
+                """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.fieldErrors.reviewedBy").doesNotExist())
+                .andExpect(jsonPath("$.fieldErrors.reviewedAt").doesNotExist())
+                .andExpect(jsonPath("$.fieldErrors.cancellationPolicyVersionId").exists());
+        verify(tours, never()).saveAndFlush(any());
     }
 
     @Test
@@ -220,7 +254,8 @@ class TourCrudTests {
         when(tours.findLockedById(1)).thenReturn(Optional.of(new Tour()));
         mvc.perform(post(SCHEDULES).contentType(MediaType.APPLICATION_JSON)
                         .content(SCHEDULE.replace("2027-01-12T17:00:00+07:00", "2027-01-10T07:00:00+07:00")))
-                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_SCHEDULE_DATES"));
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_SCHEDULE_DATES"))
+                .andExpect(jsonPath("$.fieldErrors.endsAt").value("Must be after startsAt"));
         mvc.perform(post(SCHEDULES).contentType(MediaType.APPLICATION_JSON)
                         .content(SCHEDULE.replace("2027-01-09T17:00:00+07:00", "2027-01-11T17:00:00+07:00")))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_BALANCE_DUE_AT"));
@@ -294,7 +329,7 @@ class TourCrudTests {
     }
 
     @Test
-    void malformedTourRequestsStillUseSharedRequestErrorHandling() throws Exception {
+    void malformedTourRequestsReturnSafeRequestErrors() throws Exception {
         mvc.perform(post(TOURS).contentType(MediaType.APPLICATION_JSON).content("{"))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
         mvc.perform(get(TOURS + "/invalid-id"))
@@ -303,6 +338,33 @@ class TourCrudTests {
                 {"title":"Tour","status":"NOT_A_STATUS"}
                 """))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void invalidEnumAndNumberInputsIdentifyTheFieldAndExpectedValue() throws Exception {
+        mvc.perform(put(TOURS + "/1").contentType(MediaType.APPLICATION_JSON).content("""
+                {"title":"Tour","status":"published"}
+                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_ENUM_VALUE"))
+                .andExpect(jsonPath("$.fieldErrors.status").value(
+                        "Must be one of: DRAFT, PENDING, PUBLISHED, REJECTED, ARCHIVED (case-sensitive)"));
+        mvc.perform(post(TOURS).contentType(MediaType.APPLICATION_JSON).content("""
+                {"title":"Tour","difficulty":"simple"}
+                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.fieldErrors.difficulty").value(containsString("EASY, MODERATE, HARD, EXPERT")));
+        mvc.perform(post(TOURS).contentType(MediaType.APPLICATION_JSON).content("""
+                {"title":"Tour","durationDays":"two"}
+                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_FIELD_VALUE"))
+                .andExpect(jsonPath("$.fieldErrors.durationDays").value("Must be a whole number"));
+        mvc.perform(get(TOURS).param("page", "two"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.fieldErrors.page").value("Must be a whole number"));
+        verify(tours, never()).findLockedById(anyLong());
+        verify(tours, never()).saveAndFlush(any());
     }
 
     @Test

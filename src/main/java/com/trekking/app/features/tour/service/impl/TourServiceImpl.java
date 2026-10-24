@@ -20,6 +20,8 @@ import com.trekking.app.features.tour.repository.TourMediaRepository;
 import com.trekking.app.features.tour.repository.TourScheduleRepository;
 import com.trekking.app.features.tour.service.TourService;
 import java.time.OffsetDateTime;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -68,6 +70,7 @@ public class TourServiceImpl implements TourService {
     @Override
     public TourDetailResponse update(long tourId, UpdateTourRequest request) {
         var tour = tours.findLockedById(tourId).orElseThrow(() -> notFound("Tour"));
+        validatePublication(tour, request.status() == null ? tour.getStatus() : request.status());
         mapper.updateTour(request, tour);
         if (request.status() != null) {
             tour.setStatus(request.status());
@@ -156,18 +159,45 @@ public class TourServiceImpl implements TourService {
         return schedule;
     }
 
+    private static void validatePublication(Tour tour, TourStatus status) {
+        if (status != TourStatus.PUBLISHED) {
+            return;
+        }
+        // Match the existing database rule; review metadata is managed by the backend.
+        var fields = new LinkedHashMap<String, String>();
+        if (tour.getReviewedBy() == null) {
+            fields.put("reviewedBy", "Tour must have a reviewer before publishing");
+        }
+        if (tour.getReviewedAt() == null) {
+            fields.put("reviewedAt", "Tour must have a review date before publishing");
+        }
+        if (tour.getCancellationPolicyVersionId() == null) {
+            fields.put("cancellationPolicyVersionId", "Tour must have a cancellation policy before publishing");
+        }
+        if (!fields.isEmpty()) {
+            throw new TourException(HttpStatus.CONFLICT, "TOUR_CANNOT_BE_PUBLISHED",
+                    "Tour must be reviewed and have a cancellation policy before publishing", fields);
+        }
+    }
+
     private static void validateDates(OffsetDateTime startsAt, OffsetDateTime endsAt, OffsetDateTime balanceDueAt) {
         if (!endsAt.isAfter(startsAt)) {
-            throw new TourException(HttpStatus.BAD_REQUEST, "INVALID_SCHEDULE_DATES", "endsAt must be after startsAt");
+            throw new TourException(HttpStatus.BAD_REQUEST, "INVALID_SCHEDULE_DATES", "endsAt must be after startsAt",
+                    Map.of("endsAt", "Must be after startsAt"));
         }
         if (balanceDueAt.isAfter(startsAt)) {
-            throw new TourException(HttpStatus.BAD_REQUEST, "INVALID_BALANCE_DUE_AT", "balanceDueAt must be on or before startsAt");
+            throw new TourException(HttpStatus.BAD_REQUEST, "INVALID_BALANCE_DUE_AT", "balanceDueAt must be on or before startsAt",
+                    Map.of("balanceDueAt", "Must be on or before startsAt"));
         }
     }
 
     private static PageRequest pageRequest(int page, int size) {
         if (page < 0 || size < 1 || size > 100) {
-            throw new TourException(HttpStatus.BAD_REQUEST, "INVALID_PAGINATION", "page must be >= 0 and size must be between 1 and 100");
+            var fields = new LinkedHashMap<String, String>();
+            if (page < 0) fields.put("page", "Must be greater than or equal to 0");
+            if (size < 1 || size > 100) fields.put("size", "Must be between 1 and 100");
+            throw new TourException(HttpStatus.BAD_REQUEST, "INVALID_PAGINATION",
+                    "page must be >= 0 and size must be between 1 and 100", fields);
         }
         return PageRequest.of(page, size, Sort.by("id"));
     }

@@ -35,7 +35,9 @@ Lists are sorted by id ascending. Page is zero based; size is 1..100. GET list
 responses contain summary fields; GET by ID and successful POST/PUT responses
 contain detail fields. PUT replaces editable content fields, so omitted optional
 content fields become null. Tour status is optional on PUT: omitted or null keeps
-the current status; a supplied value sets any valid `TourStatus`. Enum values use
+the current status; a supplied value must be a valid `TourStatus` and satisfy the
+existing database rules. Publishing requires a reviewer, review date and cancellation
+policy version. Enum values use
 Java names, e.g. EASY, MODERATE, HARD, EXPERT, DRAFT and SCHEDULED.
 
 ### Tour requests
@@ -60,6 +62,13 @@ Only title is required. durationDays, if supplied, must be positive.
 
 `PUT /api/v1/tours/{tourId}` uses `UpdateTourRequest`. It accepts the same content
 fields and may include a status, for example `"status": "PUBLISHED"`.
+
+Publishing requires existing `reviewedBy`, `reviewedAt` and
+`cancellationPolicyVersionId` metadata. Missing values return 409
+`TOUR_CANNOT_BE_PUBLISHED`, with one `fieldErrors` entry per missing value.
+These fields are backend managed and are not accepted in this update DTO.
+The review/policy assignment flow must set them before publishing; this refactor
+does not add that flow or require new fields such as images to publish.
 
 ### Schedule requests
 
@@ -125,10 +134,34 @@ filter chain, database foreign keys or transaction locks.
 
 Tour business errors use `TourException` and are translated by
 `TourGlobalExceptionHandler`, scoped to the tour controller package. The shared
-`ApiError` response and existing business error codes are retained. Untranslated
-database integrity errors return 409 (`TOUR_DATA_CONFLICT`); other database errors
-return 503 (`TOUR_UNAVAILABLE`) without database details. Shared request validation
-and malformed JSON handling continue to use the core exception handler.
+`ApiError` response and existing business error codes are retained. `fieldErrors`
+maps field names to messages for frontend forms; errors on backend managed fields
+should be shown as form-level messages. Request validation still uses the shared
+core handler. Tour-specific malformed input handling identifies JSON fields with
+the wrong type/format (`INVALID_FIELD_VALUE`) and invalid enum values
+(`INVALID_ENUM_VALUE`), including the allowed, case-sensitive enum names. Invalid
+path/query parameters and missing file parts also identify the offending field.
+Malformed JSON without an identifiable field returns 400 `INVALID_REQUEST`.
+
+For example, `"status": "published"` returns 400:
+
+```json
+{
+  "code": "INVALID_ENUM_VALUE",
+  "message": "Invalid request field",
+  "fieldErrors": {
+    "status": "Must be one of: DRAFT, PENDING, PUBLISHED, REJECTED, ARCHIVED (case-sensitive)"
+  }
+}
+```
+
+Known database constraints return specific 409 codes: `TOUR_CANNOT_BE_PUBLISHED`,
+`ACTIVITY_ORDER_CONFLICT`, `INVALID_LOCATION`, `TOUR_COVER_CONFLICT`,
+`TOUR_IMAGE_CONFLICT`, `INVALID_CANCELLATION_POLICY` and `INVALID_TOUR_REVIEWER`.
+Unrecognized database integrity errors still return 409 `TOUR_DATA_CONFLICT`;
+their details are logged on the backend for investigation. Other database errors
+return 503 `TOUR_UNAVAILABLE`. SQL and database record details are never returned
+in API errors. Database constraints and endpoints are unchanged by this refactor.
 
 The shared `OpenApiContractIntegrationTests` inventory includes the tour,
 schedule, activity and image operations. The full test suite
