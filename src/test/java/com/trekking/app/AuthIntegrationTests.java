@@ -4,6 +4,7 @@ import com.trekking.app.core.config.AuthProperties;
 import com.trekking.app.core.exception.AuthException;
 import com.trekking.app.core.security.AuthCrypto;
 import com.trekking.app.features.auth.dto.request.AuthRequests;
+import com.trekking.app.features.auth.validation.AuthValidation;
 import com.trekking.app.features.auth.repository.RedisAuthStore;
 import com.trekking.app.features.auth.service.AuthService;
 import com.trekking.app.features.auth.service.OtpMailSender;
@@ -48,6 +49,7 @@ class AuthIntegrationTests extends AuthTestInfrastructure {
     @Autowired
     AuthService service;
     @Autowired RedisAuthStore store;
+    @Autowired AuthValidation validation;
     @Autowired AuthCrypto crypto;
     @Autowired AuthProperties properties;
     @Autowired JwtEncoder encoder;
@@ -123,6 +125,17 @@ class AuthIntegrationTests extends AuthTestInfrastructure {
                 .andExpect(status().isNoContent()).andExpect(header().string("Set-Cookie", org.hamcrest.Matchers.containsString("Max-Age=0")));
         mvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer " + access(next)))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void verifiedLegacyAccountCanCompleteRequiredPasswordReset() throws Exception {
+        registerVerified(true);
+        jdbc.update("update trekking.app_accounts set must_change_password=true where email=?", EMAIL);
+        postJson("/login", Map.of("email", EMAIL, "password", PASSWORD)).andExpect(status().isForbidden());
+        postJson("/forgot-password", Map.of("email", EMAIL)).andExpect(status().isAccepted());
+        postJson("/reset-password", Map.of("email", EMAIL, "otp", code(EMAIL, OtpPurpose.RESET_PASSWORD),
+                "newPassword", "NewPassword123!")).andExpect(status().isOk());
+        postJson("/login", Map.of("email", EMAIL, "password", "NewPassword123!")).andExpect(status().isOk());
     }
 
     @Test
@@ -278,7 +291,7 @@ class AuthIntegrationTests extends AuthTestInfrastructure {
         String context = (String) redis.opsForHash().get(key, "context");
         store.putOtp(EMAIL, OtpPurpose.VERIFY_EMAIL, newHash, context);
         postJson("/verify-email", Map.of("email", EMAIL, "otp", old)).andExpect(status().isBadRequest());
-        store.consumeOtp(EMAIL, OtpPurpose.VERIFY_EMAIL, newHash, context);
+        validation.consumeOtp(EMAIL, OtpPurpose.VERIFY_EMAIL, newHash, context);
         assertThat(redis.hasKey(key)).isFalse();
     }
 

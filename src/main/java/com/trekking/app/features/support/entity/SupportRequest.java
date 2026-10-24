@@ -3,10 +3,8 @@ package com.trekking.app.features.support.entity;
 import com.trekking.app.core.common.entity.TimestampedEntity;
 import com.trekking.app.features.account.entity.AppAccount;
 import com.trekking.app.features.booking.entity.Booking;
-import com.trekking.app.features.company.entity.Company;
 import com.trekking.app.features.payment.entity.CustomerPayment;
 import com.trekking.app.features.payment.entity.RefundRequest;
-import com.trekking.app.features.statement.entity.CompanyStatement;
 import com.trekking.app.features.support.enums.SupportCategory;
 import com.trekking.app.features.support.enums.SupportStatus;
 import jakarta.persistence.*;
@@ -31,14 +29,8 @@ public class SupportRequest extends TimestampedEntity {
     @Column(name = "requester_id", nullable = false)
     private Long requesterId;
 
-    @Column(name = "requester_company_id")
-    private Long requesterCompanyId;
-
     @Column(name = "booking_id")
     private Long bookingId;
-
-    @Column(name = "statement_id")
-    private Long statementId;
 
     @Column(name = "payment_id")
     private Long paymentId;
@@ -69,19 +61,9 @@ public class SupportRequest extends TimestampedEntity {
     private AppAccount requester;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = true)
-    @JoinColumn(name = "requester_company_id", referencedColumnName = "id", insertable = false, updatable = false)
-    @Setter(AccessLevel.NONE)
-    private Company requesterCompany;
-
-    @ManyToOne(fetch = FetchType.LAZY, optional = true)
     @JoinColumn(name = "booking_id", referencedColumnName = "id", insertable = false, updatable = false)
     @Setter(AccessLevel.NONE)
     private Booking booking;
-
-    @ManyToOne(fetch = FetchType.LAZY, optional = true)
-    @JoinColumn(name = "statement_id", referencedColumnName = "id", insertable = false, updatable = false)
-    @Setter(AccessLevel.NONE)
-    private CompanyStatement statement;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = true)
     @JoinColumn(name = "payment_id", referencedColumnName = "id", insertable = false, updatable = false)

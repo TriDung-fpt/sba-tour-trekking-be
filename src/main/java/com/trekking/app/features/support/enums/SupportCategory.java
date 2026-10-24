@@ -6,7 +6,6 @@ public enum SupportCategory {
     BOOKING("booking"),
     PAYMENT("payment"),
     REFUND("refund"),
-    STATEMENT("statement"),
     OTHER("other");
 
     @EnumeratedValue

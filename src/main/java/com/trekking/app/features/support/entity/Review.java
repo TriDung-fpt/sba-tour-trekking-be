@@ -39,8 +39,8 @@ public class Review extends TimestampedEntity {
     @Column(name = "tour_rating", nullable = false)
     private Short tourRating;
 
-    @Column(name = "company_rating", nullable = false)
-    private Short companyRating;
+    @Column(name = "service_rating", nullable = false)
+    private Short serviceRating;
 
     @Column(name = "content", columnDefinition = "text")
     private String content;
@@ -62,8 +62,8 @@ public class Review extends TimestampedEntity {
     @Column(name = "moderation_reason", columnDefinition = "text")
     private String moderationReason;
 
-    @Column(name = "company_reply", columnDefinition = "text")
-    private String companyReply;
+    @Column(name = "operator_reply", columnDefinition = "text")
+    private String operatorReply;
 
     @Column(name = "replied_by")
     private Long repliedBy;

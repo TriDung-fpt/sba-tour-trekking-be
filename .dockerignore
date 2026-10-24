@@ -8,3 +8,6 @@ docs
 schema
 tools
 .playwright-mcp
+.frontend-work
+data
+.module-one-verify.log

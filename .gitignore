@@ -38,3 +38,12 @@ build/
 
 # Browser test artifacts
 .playwright-mcp/
+.frontend-work/
+data/
+.module-one-verify.log
+
+# Generated Python/tool caches
+__pycache__/
+*.py[cod]
+tmp/
+.tool-cache/

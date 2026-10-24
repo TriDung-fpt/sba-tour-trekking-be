@@ -10,6 +10,9 @@ import com.trekking.app.features.account.entity.AppAccount;
 import com.trekking.app.features.account.enums.AccountStatus;
 import com.trekking.app.features.account.repository.AppAccountRepository;
 import com.trekking.app.features.auth.repository.RedisAuthStore;
+import com.trekking.app.features.auth.service.GoogleTokenVerifier;
+import com.trekking.app.features.auth.validation.AuthInputNormalizer;
+import com.trekking.app.features.auth.validation.AuthValidation;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.UUID;
@@ -41,10 +44,15 @@ public class AuthServiceImpl implements AuthService {
     private final AuthProperties properties;
     private final Clock clock;
     private final String dummyHash;
+    private final AuthValidation validation;
+    private final GoogleTokenVerifier googleTokens;
+    private final GoogleAccountTransactions googleAccounts;
 
     public AuthServiceImpl(AppAccountRepository accounts, AccountTransactions transactions, RedisAuthStore store,
                            AuthCrypto crypto, PasswordEncoder passwords, OtpMailSender mail, JwtService jwt,
-                           SessionAccounts sessionAccounts, AuthProperties properties, Clock clock) {
+                           SessionAccounts sessionAccounts, AuthProperties properties, Clock clock,
+                           AuthValidation validation, GoogleTokenVerifier googleTokens,
+                           GoogleAccountTransactions googleAccounts) {
         this.accounts = accounts;
         this.transactions = transactions;
         this.store = store;
@@ -55,6 +63,9 @@ public class AuthServiceImpl implements AuthService {
         this.sessionAccounts = sessionAccounts;
         this.properties = properties;
         this.clock = clock;
+        this.validation = validation;
+        this.googleTokens = googleTokens;
+        this.googleAccounts = googleAccounts;
         dummyHash = passwords.encode(crypto.token());
     }
 
@@ -74,14 +85,16 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public void requestOtp(String email, OtpPurpose purpose) {
+        email = AuthInputNormalizer.email(email);
         if (!store.reserveEmail(email, purpose)) return;
         accounts.findByEmail(email).filter(a -> a.getStatus() == AccountStatus.ACTIVE)
+                .filter(a -> !Boolean.TRUE.equals(a.getMustChangePassword()) || a.getEmailVerifiedAt() != null)
                 .filter(a -> purpose != OtpPurpose.VERIFY_EMAIL || a.getEmailVerifiedAt() == null)
                 .ifPresent(a -> sendOtp(a, purpose, false));
     }
 
     private void sendOtp(AppAccount account, OtpPurpose purpose, boolean reportFailure) {
-        String email = account.getEmail().trim().toLowerCase(java.util.Locale.ROOT);
+        String email = AuthInputNormalizer.email(account.getEmail());
         String code = crypto.otp();
         String hash = transactions.otpHash(email, purpose, code);
         store.putOtp(email, purpose, hash, transactions.context(account));
@@ -101,7 +114,7 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public IssuedTokens login(AuthRequests.Login request, String ip) {
-        store.checkLoginLimit(request.email(), ip);
+        validation.checkLoginLimit(request.email(), ip);
         AppAccount account = accounts.findByEmail(request.email()).orElse(null);
         boolean matches = request.password().getBytes(java.nio.charset.StandardCharsets.UTF_8).length <= 72
                 && passwords.matches(request.password(), account == null ? dummyHash : account.getPasswordHash());
@@ -109,30 +122,43 @@ public class AuthServiceImpl implements AuthService {
             store.loginFailed(request.email(), ip);
             throw new AuthException(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", "Email or password is incorrect");
         }
-        if (account.getStatus() != AccountStatus.ACTIVE) {
-            throw new AuthException(HttpStatus.FORBIDDEN, "ACCOUNT_UNAVAILABLE", "Account is not active");
+        validation.validateLoginAccount(account);
+        return startSession(account);
+    }
+
+    @Override
+    public IssuedTokens loginGoogle(AuthRequests.GoogleLogin request, String ip) {
+        // Verification happens before opening a database transaction.
+        var identity = googleTokens.verify(request.idToken());
+        validation.checkLoginLimit(identity.email(), ip);
+        AppAccount account;
+        try { account = googleAccounts.resolve(identity); }
+        catch (DataIntegrityViolationException ex) {
+            // Concurrent first logins can race on unique email/sub. The failed transaction
+            // has rolled back before resolving again through the transactional proxy.
+            if (accounts.findByGoogleSubject(identity.subject()).isEmpty()
+                    && accounts.findByEmail(identity.email()).isEmpty()) throw ex;
+            account = googleAccounts.resolve(identity);
         }
-        if (account.getEmailVerifiedAt() == null) {
-            throw new AuthException(HttpStatus.FORBIDDEN, "EMAIL_NOT_VERIFIED", "Verify your email before logging in");
-        }
-        if (Boolean.TRUE.equals(account.getMustChangePassword())) {
-            throw new AuthException(HttpStatus.FORBIDDEN, "PASSWORD_RESET_REQUIRED", "Reset your password before logging in");
-        }
+        return startSession(account);
+    }
+
+    private IssuedTokens startSession(AppAccount account) {
         var session = new AuthSession(UUID.randomUUID().toString(), account.getId(),
-                crypto.passwordFingerprint(account.getPasswordHash()), clock.instant().plus(properties.sessionTtl()));
+                crypto.sessionFingerprint(account.getPasswordHash(), account.getSessionVersion()), clock.instant().plus(properties.sessionTtl()));
         String token = crypto.token();
-        store.createSession(session, crypto.digest(token));
+        validation.createSession(session, crypto.digest(token));
         return issued(session, account, token);
     }
 
     @Override
     public IssuedTokens refresh(String token) {
-        validateToken(token);
+        validation.validateRefreshToken(token);
         String hash = crypto.digest(token);
-        AuthSession session = store.sessionForRefresh(hash);
+        AuthSession session = validation.sessionForRefresh(hash);
         AppAccount account = sessionAccounts.validate(session);
         String next = crypto.token();
-        store.rotate(session, hash, crypto.digest(next));
+        validation.rotate(session, hash, crypto.digest(next));
         return issued(session, account, next);
     }
 
@@ -144,10 +170,6 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public void logout(String token) {
-        if (token != null && token.matches("[A-Za-z0-9_-]{43}")) store.logout(crypto.digest(token));
-    }
-
-    private void validateToken(String token) {
-        if (token == null || !token.matches("[A-Za-z0-9_-]{43}")) throw AuthException.invalidSession();
+        if (validation.isRefreshToken(token)) store.logout(crypto.digest(token));
     }
 }

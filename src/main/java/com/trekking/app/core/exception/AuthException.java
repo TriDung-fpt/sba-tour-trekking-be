@@ -1,7 +1,9 @@
 package com.trekking.app.core.exception;
 
+import lombok.Getter;
 import org.springframework.http.HttpStatus;
 
+@Getter
 public class AuthException extends RuntimeException {
     private final HttpStatus status;
     private final String code;
@@ -11,9 +13,6 @@ public class AuthException extends RuntimeException {
         this.status = status;
         this.code = code;
     }
-
-    public HttpStatus getStatus() { return status; }
-    public String getCode() { return code; }
 
     public static AuthException unavailable() {
         return new AuthException(HttpStatus.SERVICE_UNAVAILABLE, "AUTH_UNAVAILABLE", "Authentication service temporarily unavailable");

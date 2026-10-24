@@ -2,7 +2,7 @@ package com.trekking.app.features.support.entity;
 
 import com.trekking.app.core.common.entity.TimestampedEntity;
 import com.trekking.app.features.account.entity.AppAccount;
-import com.trekking.app.features.company.entity.PolicyVersion;
+import com.trekking.app.features.policy.entity.PolicyVersion;
 import com.trekking.app.features.support.enums.DocumentFileType;
 import com.trekking.app.features.support.enums.DocumentStatus;
 import jakarta.persistence.*;

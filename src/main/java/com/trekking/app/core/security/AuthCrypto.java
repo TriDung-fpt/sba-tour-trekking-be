@@ -44,6 +44,12 @@ public class AuthCrypto {
 
     public String passwordFingerprint(String passwordHash) { return hmac("password:" + passwordHash); }
 
+    public String sessionFingerprint(String passwordHash, long sessionVersion) {
+        // Version zero keeps sessions issued before migration 002 compatible.
+        return sessionVersion == 0 ? passwordFingerprint(passwordHash)
+                : hmac("session:" + sessionVersion + ":password:" + passwordHash);
+    }
+
     public boolean same(String a, String b) {
         return a != null && b != null && MessageDigest.isEqual(a.getBytes(StandardCharsets.UTF_8), b.getBytes(StandardCharsets.UTF_8));
     }

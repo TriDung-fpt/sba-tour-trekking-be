@@ -1,19 +1,16 @@
 package com.trekking.app.features.auth.repository;
 
 import com.trekking.app.core.config.AuthProperties;
-import com.trekking.app.core.exception.AuthException;
 import com.trekking.app.core.security.AuthCrypto;
 import com.trekking.app.features.auth.model.AuthSession;
 import com.trekking.app.features.auth.enums.OtpPurpose;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Supplier;
 import org.springframework.core.io.ClassPathResource;
-import org.springframework.dao.DataAccessException;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Repository;
 
 @Repository
@@ -28,17 +25,12 @@ public class RedisAuthStore {
         prefix = properties.redisPrefix();
     }
 
-    private <T> T execute(Supplier<T> action) {
-        try { return action.get(); }
-        catch (DataAccessException ex) { throw AuthException.unavailable(); }
-    }
-
     private long script(String name, List<String> keys, String... args) {
         var script = new DefaultRedisScript<Long>();
         script.setLocation(new ClassPathResource("redis/" + name + ".lua"));
         script.setResultType(Long.class);
-        Long result = execute(() -> redis.execute(script, keys, (Object[]) args));
-        if (result == null) throw AuthException.unavailable();
+        Long result = redis.execute(script, keys, (Object[]) args);
+        if (result == null) throw new DataAccessResourceFailureException("Redis script returned no result");
         return result;
     }
 
@@ -59,58 +51,68 @@ public class RedisAuthStore {
         script("cancel-otp", List.of(otpKey(email, purpose)), hash);
     }
 
-    public void consumeOtp(String email, OtpPurpose purpose, String hash, String context) {
-        if (script("consume-otp", List.of(otpKey(email, purpose)), hash, context) != 1) {
-            throw new AuthException(HttpStatus.BAD_REQUEST, "INVALID_OTP", "OTP is invalid or expired");
-        }
+    public boolean consumeOtp(String email, OtpPurpose purpose, String hash, String context) {
+        return script("consume-otp", List.of(otpKey(email, purpose)), hash, context) == 1;
     }
 
     private String loginKey(String kind, String value) { return prefix + "login:" + kind + ":" + crypto.hmac(value); }
 
-    public void checkLoginLimit(String email, String ip) {
-        List<String> values = execute(() -> redis.opsForValue().multiGet(List.of(loginKey("email", email), loginKey("ip", ip))));
-        if (values != null && (number(values.get(0)) >= 10 || number(values.get(1)) >= 100)) {
-            throw new AuthException(HttpStatus.TOO_MANY_REQUESTS, "TOO_MANY_ATTEMPTS", "Too many attempts; try again later");
+    public LoginAttempts loginAttempts(String email, String ip) {
+        List<String> values = redis.opsForValue().multiGet(List.of(loginKey("email", email), loginKey("ip", ip)));
+        if (values == null || values.size() != 2) {
+            throw new DataAccessResourceFailureException("Redis returned incomplete login counters");
         }
+        return new LoginAttempts(number(values.get(0)), number(values.get(1)));
     }
 
-    private long number(String value) { return value == null ? 0 : Long.parseLong(value); }
+    public record LoginAttempts(long email, long ip) {}
+
+    private long number(String value) {
+        try { return value == null ? 0 : Long.parseLong(value); }
+        catch (NumberFormatException ex) {
+            throw new DataAccessResourceFailureException("Redis returned an invalid login counter", ex);
+        }
+    }
 
     public void loginFailed(String email, String ip) {
         script("login-failed", List.of(loginKey("email", email), loginKey("ip", ip)));
     }
 
-    public void createSession(AuthSession session, String tokenHash) {
-        long result = script("create-session", List.of(prefix + "session:" + session.id(), prefix + "refresh:" + tokenHash),
+    public boolean createSession(AuthSession session, String tokenHash) {
+        return script("create-session", List.of(prefix + "session:" + session.id(), prefix + "refresh:" + tokenHash),
                 Long.toString(session.accountId()), session.passwordFingerprint(), Long.toString(session.expiresAt().getEpochSecond()),
-                tokenHash, session.id());
-        if (result != 1) throw AuthException.invalidSession();
+                tokenHash, session.id()) == 1;
     }
 
     public AuthSession getSession(String id) {
-        if (id == null || !id.matches("[a-f0-9-]{36}")) throw AuthException.invalidSession();
-        Map<Object, Object> data = execute(() -> redis.opsForHash().entries(prefix + "session:" + id));
-        if (data.isEmpty()) throw AuthException.invalidSession();
-        return new AuthSession(id, Long.parseLong((String) data.get("account")), (String) data.get("fingerprint"),
-                Instant.ofEpochSecond(Long.parseLong((String) data.get("expires"))));
-    }
-
-    public AuthSession sessionForRefresh(String hash) {
-        String id = execute(() -> redis.opsForValue().get(prefix + "refresh:" + hash));
-        return getSession(id);
-    }
-
-    public void rotate(AuthSession session, String oldHash, String newHash) {
-        if (script("rotate-session", List.of(prefix + "session:" + session.id(), prefix + "refresh:" + oldHash,
-                prefix + "refresh:" + newHash), oldHash, newHash, session.id()) != 1) {
-            throw AuthException.invalidSession();
+        if (id == null) return null;
+        Map<Object, Object> data = redis.opsForHash().entries(prefix + "session:" + id);
+        if (data == null) throw new DataAccessResourceFailureException("Redis returned no session data");
+        if (data.isEmpty()) return null;
+        try {
+            String fingerprint = (String) data.get("fingerprint");
+            if (fingerprint == null) throw new IllegalArgumentException("Missing session fingerprint");
+            return new AuthSession(id, Long.parseLong((String) data.get("account")), fingerprint,
+                    Instant.ofEpochSecond(Long.parseLong((String) data.get("expires"))));
+        } catch (IllegalArgumentException | ClassCastException | java.time.DateTimeException ex) {
+            throw new DataAccessResourceFailureException("Redis returned invalid session data", ex);
         }
     }
 
-    public void revoke(String id) { execute(() -> redis.delete(prefix + "session:" + id)); }
+    public AuthSession sessionForRefresh(String hash) {
+        String id = redis.opsForValue().get(prefix + "refresh:" + hash);
+        return getSession(id);
+    }
+
+    public boolean rotate(AuthSession session, String oldHash, String newHash) {
+        return script("rotate-session", List.of(prefix + "session:" + session.id(), prefix + "refresh:" + oldHash,
+                prefix + "refresh:" + newHash), oldHash, newHash, session.id()) == 1;
+    }
+
+    public void revoke(String id) { redis.delete(prefix + "session:" + id); }
 
     public void logout(String hash) {
-        String id = execute(() -> redis.opsForValue().get(prefix + "refresh:" + hash));
+        String id = redis.opsForValue().get(prefix + "refresh:" + hash);
         if (id != null) revoke(id);
     }
 }
