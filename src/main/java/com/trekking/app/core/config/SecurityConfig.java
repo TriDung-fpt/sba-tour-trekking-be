@@ -68,6 +68,7 @@ public class SecurityConfig {
                                 "/api/v1/auth/resend-verification", "/api/v1/auth/forgot-password",
                                 "/api/v1/auth/reset-password", "/api/v1/auth/login", "/api/v1/auth/google",
                                 "/api/v1/auth/refresh", "/api/v1/auth/logout", "/api/v1/auth/activate-account").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/payments/payos/webhook").permitAll()
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html", "/error").permitAll()
                         .anyRequest().authenticated())
                 .exceptionHandling(e -> e.authenticationEntryPoint(errors).accessDeniedHandler(errors))
