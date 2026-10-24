@@ -11,6 +11,7 @@ import com.trekking.app.features.tour.enums.ScheduleStatus;
 import com.trekking.app.features.tour.exception.TourGlobalExceptionHandler;
 import com.trekking.app.features.tour.mapper.TourMapper;
 import com.trekking.app.features.tour.repository.TourRepository;
+import com.trekking.app.features.tour.repository.TourMediaRepository;
 import com.trekking.app.features.tour.repository.TourScheduleRepository;
 import com.trekking.app.features.tour.service.impl.TourServiceImpl;
 import java.util.List;
@@ -50,14 +51,16 @@ class TourCrudTests {
             }
             """;
     private TourRepository tours;
+    private TourMediaRepository media;
     private TourScheduleRepository schedules;
     private MockMvc mvc;
 
     @BeforeEach
     void setup() {
         tours = mock(TourRepository.class);
+        media = mock(TourMediaRepository.class);
         schedules = mock(TourScheduleRepository.class);
-        var service = new TourServiceImpl(tours, schedules, Mappers.getMapper(TourMapper.class));
+        var service = new TourServiceImpl(tours, media, schedules, Mappers.getMapper(TourMapper.class));
         mvc = MockMvcBuilders.standaloneSetup(new TourController(service), new TourScheduleController(service))
                 .setControllerAdvice(new TourGlobalExceptionHandler(), new GlobalExceptionHandler()).build();
         when(tours.saveAndFlush(any(Tour.class))).thenAnswer(invocation -> {
@@ -70,6 +73,15 @@ class TourCrudTests {
             ReflectionTestUtils.setField(schedule, "id", 5L);
             return schedule;
         });
+    }
+
+    @Test
+    void uploadedImagesMustBeRemovedBeforeDeletingTour() throws Exception {
+        when(tours.findLockedById(1)).thenReturn(Optional.of(new Tour()));
+        when(media.existsByTourIdAndCloudinaryPublicIdIsNotNull(1)).thenReturn(true);
+        mvc.perform(delete(TOURS + "/1"))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("TOUR_HAS_MEDIA"));
+        verify(tours, never()).delete(any(Tour.class));
     }
 
     @Test

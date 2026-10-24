@@ -54,6 +54,7 @@ services:
       - ./schema/migrations/005_single_operator_foundation.sql:/docker-entrypoint-initdb.d/06_single_operator_foundation.sql:ro
       - ./schema/migrations/006_remove_company_domain.sql:/docker-entrypoint-initdb.d/07_remove_company_domain.sql:ro
       - ./schema/migrations/007_add_tour_equipment_catalog.sql:/docker-entrypoint-initdb.d/08_add_tour_equipment_catalog.sql:ro
+      - ./schema/migrations/008_add_tour_cloudinary_public_id.sql:/docker-entrypoint-initdb.d/09_add_tour_cloudinary_public_id.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 5s

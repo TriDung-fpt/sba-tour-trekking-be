@@ -12,9 +12,10 @@ Repository dùng SQL migration theo thứ tự; chưa dùng Flyway. Không sửa
 | 005 | [005](005_single_operator_foundation.sql) | Ba role, lưu quyền cũ và scalar FK. |
 | 006 | [006](006_remove_company_domain.sql) | Xóa company khỏi schema hiện hành; archive bằng chứng, giữ tiền/snapshot/guide ID. |
 | 007 | [007](007_add_tour_equipment_catalog.sql) | Đổi `packing_items` thành `tour_required_items`; thêm danh mục dụng cụ và cấu hình gói/giá thuê. |
+| 008 | [008](008_add_tour_cloudinary_public_id.sql) | Lưu mã Cloudinary cho ảnh tour; ảnh cũ giữ nguyên URL. |
 
-Database mới chạy bootstrap → 001 → 002 → 003 → 004 → 005 → 006 → 007 qua Compose/Testcontainers.
-Database ở 004 chỉ áp dụng 005, 006, 007; ở 005 chỉ áp dụng 006, 007; ở 006 chỉ áp dụng 007. Volume Docker cũ không chạy lại init scripts. Dừng writer, kiểm tra backup và phiên bản trước khi chạy từng SQL với ON_ERROR_STOP; không replay script đã áp dụng hoặc reset volume.
+Database mới chạy bootstrap → 001 → 002 → 003 → 004 → 005 → 006 → 007 → 008 qua Compose/Testcontainers.
+Database ở 007 chỉ áp dụng 008; các phiên bản cũ hơn chạy tiếp các file còn thiếu theo thứ tự. Volume Docker cũ không chạy lại init scripts. Dừng writer, kiểm tra backup và phiên bản trước khi chạy từng SQL với ON_ERROR_STOP; không replay script đã áp dụng hoặc reset volume.
 
 005 không tự nâng nhân sự cũ thành ADMIN. 006 sao chụp 18 bảng vào legacy_archive và ghi manifest số dòng trước khi bỏ cột/bảng company. Archive không có FK tới schema hiện hành, Java mapping hoặc quyền nghiệp vụ. DML và TRUNCATE vào archive bị chặn; quyền quản trị database/backup vẫn phải được kiểm soát ở môi trường triển khai.
 

@@ -220,6 +220,7 @@ CREATE TABLE tour_media (
     tour_id BIGINT NOT NULL REFERENCES tours(id) ON DELETE CASCADE,
     media_type TEXT NOT NULL CHECK (media_type IN ('image','video')),
     url TEXT NOT NULL,
+    cloudinary_public_id TEXT,
     caption TEXT,
     display_order INTEGER NOT NULL DEFAULT 0,
     is_cover BOOLEAN NOT NULL DEFAULT FALSE,
@@ -228,6 +229,8 @@ CREATE TABLE tour_media (
 );
 COMMENT ON TABLE tour_media IS 'Ảnh/video giới thiệu tour; URL tới nơi lưu file.';
 CREATE UNIQUE INDEX uq_tour_cover ON tour_media(tour_id) WHERE is_cover;
+CREATE UNIQUE INDEX uq_tour_media_cloudinary_public_id ON tour_media(cloudinary_public_id)
+    WHERE cloudinary_public_id IS NOT NULL;
 
 -- Hoạt động trong lịch trình mẫu của tour.
 CREATE TABLE tour_activities (

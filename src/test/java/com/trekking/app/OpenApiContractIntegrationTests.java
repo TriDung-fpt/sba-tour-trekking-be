@@ -69,7 +69,12 @@ class OpenApiContractIntegrationTests extends AuthTestInfrastructure {
             "GET /api/v1/tours/{tourId}/activities",
             "POST /api/v1/tours/{tourId}/activities",
             "PUT /api/v1/tours/{tourId}/activities/{activityId}",
-            "DELETE /api/v1/tours/{tourId}/activities/{activityId}");
+            "DELETE /api/v1/tours/{tourId}/activities/{activityId}",
+            "POST /api/v1/tours/{tourId}/media",
+            "PATCH /api/v1/tours/{tourId}/media/{mediaId}",
+            "PATCH /api/v1/tours/{tourId}/media/{mediaId}/cover",
+            "PUT /api/v1/tours/{tourId}/media/order",
+            "DELETE /api/v1/tours/{tourId}/media/{mediaId}");
 
     @Autowired MockMvc mvc;
     @Autowired ObjectMapper json;
@@ -100,9 +105,10 @@ class OpenApiContractIntegrationTests extends AuthTestInfrastructure {
         var expected = new HashSet<>(PUBLIC_OPERATIONS);
         expected.addAll(PROTECTED_OPERATIONS);
         expected.addAll(TOUR_OPERATIONS);
-        assertThat(actual).hasSize(38).containsExactlyInAnyOrderElementsOf(expected);
+        assertThat(actual).containsExactlyInAnyOrderElementsOf(expected);
         assertThat(document.path("paths").properties().stream()
-                .filter(path -> path.getKey().startsWith("/api/v1/")).count()).isEqualTo(28L);
+                .filter(path -> path.getKey().startsWith("/api/v1/")).count())
+                .isEqualTo(expected.stream().map(operation -> operation.substring(operation.indexOf(' ') + 1)).distinct().count());
         Files.createDirectories(Path.of("target"));
         Files.writeString(Path.of("target/p1-openapi.json"), json.writerWithDefaultPrettyPrinter().writeValueAsString(document));
     }

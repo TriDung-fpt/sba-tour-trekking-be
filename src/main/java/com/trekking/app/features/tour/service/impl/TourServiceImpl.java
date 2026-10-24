@@ -81,6 +81,9 @@ public class TourServiceImpl implements TourService {
         if (tour.getStatus() != TourStatus.DRAFT || schedules.existsByTourId(tourId)) {
             throw conflict("TOUR_NOT_DELETABLE", "Only draft tours without schedules can be deleted");
         }
+        if (media.existsByTourIdAndCloudinaryPublicIdIsNotNull(tourId)) {
+            throw conflict("TOUR_HAS_MEDIA", "Delete uploaded tour images before deleting the tour");
+        }
         try {
             tours.delete(tour);
             tours.flush();

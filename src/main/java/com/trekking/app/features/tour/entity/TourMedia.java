@@ -31,6 +31,9 @@ public class TourMedia extends TimestampedEntity {
     @Column(name = "url", nullable = false, columnDefinition = "text")
     private String url;
 
+    @Column(name = "cloudinary_public_id", columnDefinition = "text")
+    private String cloudinaryPublicId;
+
     @Column(name = "caption", columnDefinition = "text")
     private String caption;
 
