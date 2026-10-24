@@ -47,9 +47,9 @@ public class RagController {
     // ── Ingestion (Admin-only) ────────────────────────────────────────────────
 
     @Operation(
-            summary     = "Ingest tours into the vector store",
-            description = "Loads tour data from the database, chunks and embeds it, then upserts into pgvector. " +
-                          "Pass a tourId to re-embed a single tour, or omit it to re-embed all active tours."
+            summary     = "Ingest data into the vector store",
+            description = "Loads data, chunks and embeds it, then upserts into pgvector. " +
+                          "Pass tourId to re-embed a single tour, type='documents' for RAG documents, or type='all' for everything."
     )
     @PostMapping("/ingest")
     @PreAuthorize("hasRole('ADMIN')")
@@ -57,9 +57,27 @@ public class RagController {
         int chunks;
         if (request != null && request.tourId() != null) {
             chunks = ingestionService.ingestTour(request.tourId());
+        } else if (request != null && "documents".equalsIgnoreCase(request.type())) {
+            chunks = ingestionService.ingestRagDocuments();
+        } else if (request != null && "tours".equalsIgnoreCase(request.type())) {
+            chunks = ingestionService.ingestAllTours();
         } else {
             chunks = ingestionService.ingestAll();
         }
+        return ResponseEntity.ok(Map.of(
+                "status",        "completed",
+                "chunksIndexed", chunks
+        ));
+    }
+
+    @Operation(
+            summary     = "Ingest resource documents into the vector store",
+            description = "Loads policy/reference documents from resources/RAGdocument (e.g. PDF policies), chunks and embeds them, then upserts into pgvector."
+    )
+    @PostMapping("/ingest/documents")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<Map<String, Object>> ingestDocuments() {
+        int chunks = ingestionService.ingestRagDocuments();
         return ResponseEntity.ok(Map.of(
                 "status",        "completed",
                 "chunksIndexed", chunks

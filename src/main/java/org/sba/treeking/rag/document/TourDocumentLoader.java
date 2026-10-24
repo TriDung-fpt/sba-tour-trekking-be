@@ -28,26 +28,33 @@ public class TourDocumentLoader {
 
     private static final String LOAD_ALL_SQL = """
             SELECT
-                tp.id,
-                tp.title,
-                tp.description,
-                tp.duration_days,
-                tp.price_per_person,
-                tp.max_participants,
-                tp.difficulty_level,
-                tp.status,
-                tp.cancellation_policy,
-                tp.includes_equipment,
+                t.id,
+                t.title,
+                t.description,
+                t.duration_days,
+                COALESCE(ts.base_price_vnd, 0) AS price_per_person,
+                COALESCE(ts.capacity, 0) AS max_participants,
+                COALESCE(t.difficulty, 'moderate') AS difficulty_level,
+                COALESCE(pv.content, 'Standard cancellation policy') AS cancellation_policy,
+                CASE WHEN t.included_services IS NOT NULL AND t.included_services != '' THEN true ELSE false END AS includes_equipment,
                 c.name AS company_name
-            FROM trekking.tour_packages tp
-            JOIN trekking.companies c ON c.id = tp.company_id
-            WHERE tp.status = 'active'
-            ORDER BY tp.id
+            FROM trekking.tours t
+            JOIN trekking.companies c ON c.id = t.company_id
+            LEFT JOIN trekking.policy_versions pv ON pv.id = t.cancellation_policy_version_id
+            LEFT JOIN LATERAL (
+                SELECT base_price_vnd, capacity
+                FROM trekking.tour_schedules s
+                WHERE s.tour_id = t.id AND s.status = 'scheduled'
+                ORDER BY s.starts_at ASC
+                LIMIT 1
+            ) ts ON true
+            WHERE t.status IN ('published', 'pending', 'draft')
+            ORDER BY t.id
             """;
 
     private static final String LOAD_BY_ID_SQL = LOAD_ALL_SQL.replace(
-            "WHERE tp.status = 'active'",
-            "WHERE tp.status = 'active' AND tp.id = ?");
+            "WHERE t.status IN ('published', 'pending', 'draft')",
+            "WHERE t.id = ?");
 
     /**
      * Load all active tours as documents.

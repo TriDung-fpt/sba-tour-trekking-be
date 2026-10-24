@@ -4,7 +4,7 @@ import io.micrometer.observation.ObservationRegistry;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.embedding.EmbeddingModel;
-import org.springframework.ai.vectorstore.PgVectorStore;
+import org.springframework.ai.vectorstore.pgvector.PgVectorStore;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.ai.vectorstore.pgvector.PgVectorStore.PgIndexType;
 import org.springframework.ai.vectorstore.pgvector.PgVectorStore.PgDistanceType;
@@ -35,7 +35,7 @@ public class RagConfig {
         return PgVectorStore.builder(jdbcTemplate, embeddingModel)
                 .schemaName("trekking")
                 .vectorTableName("tour_embeddings")
-                .dimensions(1536)                         // text-embedding-3-small
+                .dimensions(768)                          // nomic-embed-text-v1.5 (local LM Studio)
                 .distanceType(PgDistanceType.COSINE_DISTANCE)
                 .indexType(PgIndexType.HNSW)
                 .initializeSchema(true)                   // create table + index if absent
