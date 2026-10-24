@@ -65,7 +65,11 @@ class OpenApiContractIntegrationTests extends AuthTestInfrastructure {
             "GET /api/v1/tours/{tourId}/schedules/{scheduleId}",
             "POST /api/v1/tours/{tourId}/schedules",
             "PUT /api/v1/tours/{tourId}/schedules/{scheduleId}",
-            "DELETE /api/v1/tours/{tourId}/schedules/{scheduleId}");
+            "DELETE /api/v1/tours/{tourId}/schedules/{scheduleId}",
+            "GET /api/v1/tours/{tourId}/activities",
+            "POST /api/v1/tours/{tourId}/activities",
+            "PUT /api/v1/tours/{tourId}/activities/{activityId}",
+            "DELETE /api/v1/tours/{tourId}/activities/{activityId}");
 
     @Autowired MockMvc mvc;
     @Autowired ObjectMapper json;
@@ -96,7 +100,7 @@ class OpenApiContractIntegrationTests extends AuthTestInfrastructure {
         var expected = new HashSet<>(PUBLIC_OPERATIONS);
         expected.addAll(PROTECTED_OPERATIONS);
         expected.addAll(TOUR_OPERATIONS);
-        assertThat(actual).hasSize(36).containsExactlyInAnyOrderElementsOf(expected);
+        assertThat(actual).hasSize(38).containsExactlyInAnyOrderElementsOf(expected);
         assertThat(document.path("paths").properties().stream()
                 .filter(path -> path.getKey().startsWith("/api/v1/")).count()).isEqualTo(28L);
         Files.createDirectories(Path.of("target"));

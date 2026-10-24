@@ -11,7 +11,7 @@ import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 
-public record ScheduleRequest(
+public record UpdateScheduleRequest(
         @NotNull OffsetDateTime startsAt,
         @NotNull OffsetDateTime endsAt,
         @NotNull @Positive Integer capacity,

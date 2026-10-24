@@ -1,7 +1,9 @@
 package com.trekking.app.features.tour.controller;
 
-import com.trekking.app.features.tour.dto.request.ScheduleRequest;
-import com.trekking.app.features.tour.dto.response.ScheduleResponse;
+import com.trekking.app.features.tour.dto.request.CreateScheduleRequest;
+import com.trekking.app.features.tour.dto.request.UpdateScheduleRequest;
+import com.trekking.app.features.tour.dto.response.ScheduleDetailResponse;
+import com.trekking.app.features.tour.dto.response.ScheduleSummaryResponse;
 import com.trekking.app.features.tour.service.TourService;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import jakarta.validation.Valid;
@@ -21,25 +23,25 @@ public class TourScheduleController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public ScheduleResponse create(@PathVariable long tourId, @Valid @RequestBody ScheduleRequest request) {
+    public ScheduleDetailResponse create(@PathVariable long tourId, @Valid @RequestBody CreateScheduleRequest request) {
         return tours.createSchedule(tourId, request);
     }
 
     @GetMapping
-    public Page<ScheduleResponse> list(@PathVariable long tourId,
-                                       @RequestParam(defaultValue = "0") int page,
-                                       @RequestParam(defaultValue = "20") int size) {
+    public Page<ScheduleSummaryResponse> list(@PathVariable long tourId,
+                                              @RequestParam(defaultValue = "0") int page,
+                                              @RequestParam(defaultValue = "20") int size) {
         return tours.listSchedules(tourId, page, size);
     }
 
     @GetMapping("/{scheduleId}")
-    public ScheduleResponse read(@PathVariable long tourId, @PathVariable long scheduleId) {
+    public ScheduleDetailResponse read(@PathVariable long tourId, @PathVariable long scheduleId) {
         return tours.readSchedule(tourId, scheduleId);
     }
 
     @PutMapping("/{scheduleId}")
-    public ScheduleResponse update(@PathVariable long tourId, @PathVariable long scheduleId,
-                                    @Valid @RequestBody ScheduleRequest request) {
+    public ScheduleDetailResponse update(@PathVariable long tourId, @PathVariable long scheduleId,
+                                         @Valid @RequestBody UpdateScheduleRequest request) {
         return tours.updateSchedule(tourId, scheduleId, request);
     }
 

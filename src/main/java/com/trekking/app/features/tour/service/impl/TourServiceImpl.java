@@ -1,18 +1,25 @@
 package com.trekking.app.features.tour.service.impl;
 
 import com.trekking.app.features.tour.exception.TourException;
-import com.trekking.app.features.tour.dto.request.ScheduleRequest;
-import com.trekking.app.features.tour.dto.request.TourRequest;
-import com.trekking.app.features.tour.dto.response.ScheduleResponse;
-import com.trekking.app.features.tour.dto.response.TourResponse;
+import com.trekking.app.features.tour.dto.request.CreateScheduleRequest;
+import com.trekking.app.features.tour.dto.request.CreateTourRequest;
+import com.trekking.app.features.tour.dto.request.UpdateScheduleRequest;
+import com.trekking.app.features.tour.dto.request.UpdateTourRequest;
+import com.trekking.app.features.tour.dto.response.ScheduleDetailResponse;
+import com.trekking.app.features.tour.dto.response.ScheduleSummaryResponse;
+import com.trekking.app.features.tour.dto.response.TourDetailResponse;
+import com.trekking.app.features.tour.dto.response.TourSummaryResponse;
 import com.trekking.app.features.tour.entity.Tour;
 import com.trekking.app.features.tour.entity.TourSchedule;
+import com.trekking.app.features.tour.entity.TourMedia;
 import com.trekking.app.features.tour.enums.ScheduleStatus;
 import com.trekking.app.features.tour.enums.TourStatus;
 import com.trekking.app.features.tour.mapper.TourMapper;
 import com.trekking.app.features.tour.repository.TourRepository;
+import com.trekking.app.features.tour.repository.TourMediaRepository;
 import com.trekking.app.features.tour.repository.TourScheduleRepository;
 import com.trekking.app.features.tour.service.TourService;
+import java.time.OffsetDateTime;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -25,39 +32,47 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 public class TourServiceImpl implements TourService {
     private final TourRepository tours;
+    private final TourMediaRepository media;
     private final TourScheduleRepository schedules;
     private final TourMapper mapper;
 
-    public TourServiceImpl(TourRepository tours, TourScheduleRepository schedules, TourMapper mapper) {
+    public TourServiceImpl(TourRepository tours, TourMediaRepository media, TourScheduleRepository schedules, TourMapper mapper) {
         this.tours = tours;
+        this.media = media;
         this.schedules = schedules;
         this.mapper = mapper;
     }
 
     @Override
-    public TourResponse create(TourRequest request) {
-        var tour = new Tour();
-        mapper.updateTour(request, tour);
-        return mapper.toResponse(tours.saveAndFlush(tour));
+    public TourDetailResponse create(CreateTourRequest request) {
+        var tour = mapper.toTour(request);
+        return detail(tours.saveAndFlush(tour));
     }
 
     @Override
     @Transactional(readOnly = true)
-    public Page<TourResponse> list(int page, int size) {
-        return tours.findAll(pageRequest(page, size)).map(mapper::toResponse);
+    public Page<TourSummaryResponse> list(int page, int size) {
+        var pageOfTours = tours.findAll(pageRequest(page, size));
+        var tourIds = pageOfTours.getContent().stream().map(Tour::getId).toList();
+        var covers = media.findAllByTourIdInAndIsCoverTrue(tourIds).stream()
+                .collect(java.util.stream.Collectors.toMap(TourMedia::getTourId, TourMedia::getUrl));
+        return pageOfTours.map(tour -> mapper.toSummaryResponse(tour, covers.get(tour.getId())));
     }
 
     @Override
     @Transactional(readOnly = true)
-    public TourResponse read(long tourId) {
-        return mapper.toResponse(requireTour(tourId));
+    public TourDetailResponse read(long tourId) {
+        return detail(requireTour(tourId));
     }
 
     @Override
-    public TourResponse update(long tourId, TourRequest request) {
+    public TourDetailResponse update(long tourId, UpdateTourRequest request) {
         var tour = tours.findLockedById(tourId).orElseThrow(() -> notFound("Tour"));
         mapper.updateTour(request, tour);
-        return mapper.toResponse(tours.saveAndFlush(tour));
+        if (request.status() != null) {
+            tour.setStatus(request.status());
+        }
+        return detail(tours.saveAndFlush(tour));
     }
 
     @Override
@@ -75,36 +90,35 @@ public class TourServiceImpl implements TourService {
     }
 
     @Override
-    public ScheduleResponse createSchedule(long tourId, ScheduleRequest request) {
+    public ScheduleDetailResponse createSchedule(long tourId, CreateScheduleRequest request) {
         // Serialize with tour deletion so a schedule cannot be created for a deleted tour.
         tours.findLockedById(tourId).orElseThrow(() -> notFound("Tour"));
-        validateDates(request);
-        var schedule = new TourSchedule();
+        validateDates(request.startsAt(), request.endsAt(), request.balanceDueAt());
+        var schedule = mapper.toSchedule(request);
         schedule.setTourId(tourId);
-        mapper.updateSchedule(request, schedule);
-        return mapper.toResponse(schedules.saveAndFlush(schedule));
+        return mapper.toDetailResponse(schedules.saveAndFlush(schedule));
     }
 
     @Override
     @Transactional(readOnly = true)
-    public Page<ScheduleResponse> listSchedules(long tourId, int page, int size) {
+    public Page<ScheduleSummaryResponse> listSchedules(long tourId, int page, int size) {
         requireTour(tourId);
-        return schedules.findAllByTourId(tourId, pageRequest(page, size)).map(mapper::toResponse);
+        return schedules.findAllByTourId(tourId, pageRequest(page, size)).map(mapper::toSummaryResponse);
     }
 
     @Override
     @Transactional(readOnly = true)
-    public ScheduleResponse readSchedule(long tourId, long scheduleId) {
-        return mapper.toResponse(schedules.findByIdAndTourId(scheduleId, tourId)
+    public ScheduleDetailResponse readSchedule(long tourId, long scheduleId) {
+        return mapper.toDetailResponse(schedules.findByIdAndTourId(scheduleId, tourId)
                 .orElseThrow(() -> notFound("Schedule")));
     }
 
     @Override
-    public ScheduleResponse updateSchedule(long tourId, long scheduleId, ScheduleRequest request) {
+    public ScheduleDetailResponse updateSchedule(long tourId, long scheduleId, UpdateScheduleRequest request) {
         var schedule = editableSchedule(tourId, scheduleId);
-        validateDates(request);
+        validateDates(request.startsAt(), request.endsAt(), request.balanceDueAt());
         mapper.updateSchedule(request, schedule);
-        return mapper.toResponse(schedules.saveAndFlush(schedule));
+        return mapper.toDetailResponse(schedules.saveAndFlush(schedule));
     }
 
     @Override
@@ -122,6 +136,13 @@ public class TourServiceImpl implements TourService {
         return tours.findById(tourId).orElseThrow(() -> notFound("Tour"));
     }
 
+    private TourDetailResponse detail(Tour tour) {
+        var tourMedia = media.findAllByTourIdOrderByDisplayOrderAscIdAsc(tour.getId()).stream()
+                .map(mapper::toResponse)
+                .toList();
+        return mapper.toDetailResponse(tour, tourMedia);
+    }
+
     private TourSchedule editableSchedule(long tourId, long scheduleId) {
         var schedule = schedules.findLockedByIdAndTourId(scheduleId, tourId)
                 .orElseThrow(() -> notFound("Schedule"));
@@ -132,11 +153,11 @@ public class TourServiceImpl implements TourService {
         return schedule;
     }
 
-    private static void validateDates(ScheduleRequest request) {
-        if (!request.endsAt().isAfter(request.startsAt())) {
+    private static void validateDates(OffsetDateTime startsAt, OffsetDateTime endsAt, OffsetDateTime balanceDueAt) {
+        if (!endsAt.isAfter(startsAt)) {
             throw new TourException(HttpStatus.BAD_REQUEST, "INVALID_SCHEDULE_DATES", "endsAt must be after startsAt");
         }
-        if (request.balanceDueAt().isAfter(request.startsAt())) {
+        if (balanceDueAt.isAfter(startsAt)) {
             throw new TourException(HttpStatus.BAD_REQUEST, "INVALID_BALANCE_DUE_AT", "balanceDueAt must be on or before startsAt");
         }
     }

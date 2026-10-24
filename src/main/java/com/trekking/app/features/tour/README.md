@@ -12,21 +12,31 @@ on Tour is unnecessary: schedules are queried and paginated by tourId.
 | Method | Path | Result |
 | --- | --- | --- |
 | POST | /api/v1/tours | Create draft tour, 201 |
-| GET | /api/v1/tours?page=0&size=20 | Paginated tours |
+| GET | /api/v1/tours?page=0&size=20 | Paginated tour summaries |
 | GET | /api/v1/tours/{tourId} | Tour details |
-| PUT | /api/v1/tours/{tourId} | Replace editable tour fields |
+| PUT | /api/v1/tours/{tourId} | Replace editable tour fields and optionally set status |
 | DELETE | /api/v1/tours/{tourId} | Delete unused draft, 204 |
 | POST | /api/v1/tours/{tourId}/schedules | Create scheduled departure, 201 |
-| GET | /api/v1/tours/{tourId}/schedules?page=0&size=20 | Paginated departures |
+| GET | /api/v1/tours/{tourId}/schedules?page=0&size=20 | Paginated schedule summaries |
 | GET | /api/v1/tours/{tourId}/schedules/{scheduleId} | Departure details |
 | PUT | /api/v1/tours/{tourId}/schedules/{scheduleId} | Replace editable departure fields |
 | DELETE | /api/v1/tours/{tourId}/schedules/{scheduleId} | Delete unused departure, 204 |
+| GET | /api/v1/tours/{tourId}/activities | List the tour's activities by day and order |
+| POST | /api/v1/tours/{tourId}/activities | Add an activity |
+| PUT | /api/v1/tours/{tourId}/activities/{activityId} | Update one activity |
+| DELETE | /api/v1/tours/{tourId}/activities/{activityId} | Delete one activity |
 
-Lists are sorted by id ascending. Page is zero based; size is 1..100. PUT is a full
-replacement of editable fields: omitted optional fields become null. Enum inputs
-and outputs use Java names, e.g. EASY, MODERATE, HARD, EXPERT, DRAFT and SCHEDULED.
+Lists are sorted by id ascending. Page is zero based; size is 1..100. GET list
+responses contain summary fields; GET by ID and successful POST/PUT responses
+contain detail fields. PUT replaces editable content fields, so omitted optional
+content fields become null. Tour status is optional on PUT: omitted or null keeps
+the current status; a supplied value sets any valid `TourStatus`. Enum values use
+Java names, e.g. EASY, MODERATE, HARD, EXPERT, DRAFT and SCHEDULED.
 
-### Tour request (POST and PUT)
+### Tour requests
+
+`POST /api/v1/tours` uses `CreateTourRequest` and always creates a DRAFT tour. Its
+body contains the fields below; `status` is not accepted as a create field.
 
 ```json
 {
@@ -43,7 +53,13 @@ and outputs use Java names, e.g. EASY, MODERATE, HARD, EXPERT, DRAFT and SCHEDUL
 
 Only title is required. durationDays, if supplied, must be positive.
 
-### Schedule request (POST and PUT)
+`PUT /api/v1/tours/{tourId}` uses `UpdateTourRequest`. It accepts the same content
+fields and may include a status, for example `"status": "PUBLISHED"`.
+
+### Schedule requests
+
+POST uses `CreateScheduleRequest`; PUT uses `UpdateScheduleRequest`. Both accept
+the editable fields below.
 
 ```json
 {
@@ -63,7 +79,19 @@ All fields except meetingPoint and contactPhone are required. Dates include an
 offset. endsAt must be after startsAt; balanceDueAt must be on or before startsAt.
 Prices are integer VND in 0..1,000,000,000,000; depositPercent is >0 and <=100 with
 at most two fractional digits. tourId comes from the path and cannot be reassigned.
-Seat counters, status, completion and review metadata are server owned.
+Seat counters, schedule status, completion and review metadata are server owned.
+Tour summary responses contain `id`, `title`, `difficulty`, `durationDays` and
+`status`. Schedule summary responses contain `id`, start/end time, capacity, held
+and confirmed seats, base/equipment prices and status. Detail responses retain
+the full fields previously returned by the API.
+
+### Tour activities
+
+Activities belong to the reusable Tour and are grouped by `dayNumber`. Each row
+stores its day number, order, optional start time, title, description and optional
+location. `GET /api/v1/tours/{tourId}/activities` returns them ordered by day,
+then order. Create or update one activity at a time; the existing `tour_activities`
+table already supports these fields, so no database change is needed for this API.
 
 ## Boundaries
 
@@ -72,8 +100,8 @@ Seat counters, status, completion and review metadata are server owned.
 - Schedule update/delete requires SCHEDULED and zero held/confirmed seats; otherwise 409.
 - Database references (e.g. bookings, carts, guide assignments) block deletion with 409.
 - Row locks serialize tour update/delete/create-schedule and schedule update/delete.
-- Publishing, cancellation/refunds, attendance, equipment reservation and role checks
-  are separate integration work. CRUD does not change lifecycle statuses.
+- Schedule cancellation/refunds, attendance, equipment reservation and role checks
+  are separate integration work.
 - Existing SecurityConfig requires a valid bearer token for all these routes. Role
   authorization is deferred by agreement: currently any authenticated account can
   call this initial CRUD. Add permission checks before making it available to customers.
@@ -88,8 +116,8 @@ database integrity errors return 409 (`TOUR_DATA_CONFLICT`); other database erro
 return 503 (`TOUR_UNAVAILABLE`) without database details. Shared request validation
 and malformed JSON handling continue to use the core exception handler.
 
-The shared `OpenApiContractIntegrationTests` inventory includes the ten protected
-tour and schedule operations (36 operations on 28 paths). The full test suite
+The shared `OpenApiContractIntegrationTests` inventory includes the tour,
+schedule and activity operations (38 operations on 30 paths). The full test suite
 requires a running Docker daemon for its PostgreSQL/Redis Testcontainers.
 
 ```powershell

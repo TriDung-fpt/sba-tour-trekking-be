@@ -1,20 +1,24 @@
 package com.trekking.app.features.tour.service;
 
-import com.trekking.app.features.tour.dto.request.TourRequest;
-import com.trekking.app.features.tour.dto.request.ScheduleRequest;
-import com.trekking.app.features.tour.dto.response.TourResponse;
-import com.trekking.app.features.tour.dto.response.ScheduleResponse;
+import com.trekking.app.features.tour.dto.request.CreateScheduleRequest;
+import com.trekking.app.features.tour.dto.request.CreateTourRequest;
+import com.trekking.app.features.tour.dto.request.UpdateScheduleRequest;
+import com.trekking.app.features.tour.dto.request.UpdateTourRequest;
+import com.trekking.app.features.tour.dto.response.ScheduleDetailResponse;
+import com.trekking.app.features.tour.dto.response.ScheduleSummaryResponse;
+import com.trekking.app.features.tour.dto.response.TourDetailResponse;
+import com.trekking.app.features.tour.dto.response.TourSummaryResponse;
 import org.springframework.data.domain.Page;
 
 public interface TourService {
-    TourResponse create(TourRequest request);
-    Page<TourResponse> list(int page, int size);
-    TourResponse read(long tourId);
-    TourResponse update(long tourId, TourRequest request);
+    TourDetailResponse create(CreateTourRequest request);
+    Page<TourSummaryResponse> list(int page, int size);
+    TourDetailResponse read(long tourId);
+    TourDetailResponse update(long tourId, UpdateTourRequest request);
     void delete(long tourId);
-    ScheduleResponse createSchedule(long tourId, ScheduleRequest request);
-    Page<ScheduleResponse> listSchedules(long tourId, int page, int size);
-    ScheduleResponse readSchedule(long tourId, long scheduleId);
-    ScheduleResponse updateSchedule(long tourId, long scheduleId, ScheduleRequest request);
+    ScheduleDetailResponse createSchedule(long tourId, CreateScheduleRequest request);
+    Page<ScheduleSummaryResponse> listSchedules(long tourId, int page, int size);
+    ScheduleDetailResponse readSchedule(long tourId, long scheduleId);
+    ScheduleDetailResponse updateSchedule(long tourId, long scheduleId, UpdateScheduleRequest request);
     void deleteSchedule(long tourId, long scheduleId);
 }
