@@ -1,0 +1,51 @@
+package com.trekking.app.features.tour.controller;
+
+import com.trekking.app.features.tour.dto.request.ScheduleRequest;
+import com.trekking.app.features.tour.dto.response.ScheduleResponse;
+import com.trekking.app.features.tour.service.TourService;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import jakarta.validation.Valid;
+import org.springframework.data.domain.Page;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api/v1/tours/{tourId}/schedules")
+@SecurityRequirement(name = "bearerAuth")
+public class TourScheduleController {
+    private final TourService tours;
+
+    public TourScheduleController(TourService tours) {
+        this.tours = tours;
+    }
+
+    @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
+    public ScheduleResponse create(@PathVariable long tourId, @Valid @RequestBody ScheduleRequest request) {
+        return tours.createSchedule(tourId, request);
+    }
+
+    @GetMapping
+    public Page<ScheduleResponse> list(@PathVariable long tourId,
+                                       @RequestParam(defaultValue = "0") int page,
+                                       @RequestParam(defaultValue = "20") int size) {
+        return tours.listSchedules(tourId, page, size);
+    }
+
+    @GetMapping("/{scheduleId}")
+    public ScheduleResponse read(@PathVariable long tourId, @PathVariable long scheduleId) {
+        return tours.readSchedule(tourId, scheduleId);
+    }
+
+    @PutMapping("/{scheduleId}")
+    public ScheduleResponse update(@PathVariable long tourId, @PathVariable long scheduleId,
+                                    @Valid @RequestBody ScheduleRequest request) {
+        return tours.updateSchedule(tourId, scheduleId, request);
+    }
+
+    @DeleteMapping("/{scheduleId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void delete(@PathVariable long tourId, @PathVariable long scheduleId) {
+        tours.deleteSchedule(tourId, scheduleId);
+    }
+}

@@ -11,7 +11,7 @@ import lombok.Setter;
 @Setter
 @NoArgsConstructor
 @Entity
-@Table(name = "packing_items", schema = "trekking")
+@Table(name = "tour_required_items", schema = "trekking")
 public class PackingItem extends TimestampedEntity {
 
     @Id

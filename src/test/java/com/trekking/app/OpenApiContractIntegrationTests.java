@@ -55,6 +55,17 @@ class OpenApiContractIntegrationTests extends AuthTestInfrastructure {
             "POST /api/v1/admin/staff/invitations/{accountId}/resend",
             "POST /api/v1/admin/guides/invitations",
             "POST /api/v1/admin/guides/invitations/{accountId}/resend");
+    private static final Set<String> TOUR_OPERATIONS = Set.of(
+            "GET /api/v1/tours",
+            "GET /api/v1/tours/{tourId}",
+            "POST /api/v1/tours",
+            "PUT /api/v1/tours/{tourId}",
+            "DELETE /api/v1/tours/{tourId}",
+            "GET /api/v1/tours/{tourId}/schedules",
+            "GET /api/v1/tours/{tourId}/schedules/{scheduleId}",
+            "POST /api/v1/tours/{tourId}/schedules",
+            "PUT /api/v1/tours/{tourId}/schedules/{scheduleId}",
+            "DELETE /api/v1/tours/{tourId}/schedules/{scheduleId}");
 
     @Autowired MockMvc mvc;
     @Autowired ObjectMapper json;
@@ -84,9 +95,10 @@ class OpenApiContractIntegrationTests extends AuthTestInfrastructure {
         }
         var expected = new HashSet<>(PUBLIC_OPERATIONS);
         expected.addAll(PROTECTED_OPERATIONS);
-        assertThat(actual).hasSize(26).containsExactlyInAnyOrderElementsOf(expected);
+        expected.addAll(TOUR_OPERATIONS);
+        assertThat(actual).hasSize(36).containsExactlyInAnyOrderElementsOf(expected);
         assertThat(document.path("paths").properties().stream()
-                .filter(path -> path.getKey().startsWith("/api/v1/")).count()).isEqualTo(24L);
+                .filter(path -> path.getKey().startsWith("/api/v1/")).count()).isEqualTo(28L);
         Files.createDirectories(Path.of("target"));
         Files.writeString(Path.of("target/p1-openapi.json"), json.writerWithDefaultPrettyPrinter().writeValueAsString(document));
     }
@@ -102,7 +114,9 @@ class OpenApiContractIntegrationTests extends AuthTestInfrastructure {
     @Test
     void everyProtectedOperationRequiresBearerWithoutAnAnonymousAlternative() throws Exception {
         var bearer = json.readTree("[{\"bearerAuth\":[]}]");
-        for (String endpoint : PROTECTED_OPERATIONS) {
+        var protectedOperations = new HashSet<>(PROTECTED_OPERATIONS);
+        protectedOperations.addAll(TOUR_OPERATIONS);
+        for (String endpoint : protectedOperations) {
             assertThat(operation(endpoint).path("security")).as("Bearer requirement for %s", endpoint).isEqualTo(bearer);
         }
     }
