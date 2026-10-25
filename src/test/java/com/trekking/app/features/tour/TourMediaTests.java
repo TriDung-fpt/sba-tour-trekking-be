@@ -5,13 +5,14 @@ import com.trekking.app.features.tour.controller.TourMediaController;
 import com.trekking.app.features.tour.entity.Tour;
 import com.trekking.app.features.tour.entity.TourMedia;
 import com.trekking.app.features.tour.enums.MediaType;
-import com.trekking.app.features.tour.exception.TourException;
 import com.trekking.app.features.tour.exception.TourGlobalExceptionHandler;
 import com.trekking.app.features.tour.mapper.TourMapper;
 import com.trekking.app.features.tour.repository.TourMediaRepository;
 import com.trekking.app.features.tour.repository.TourRepository;
 import com.trekking.app.features.tour.service.impl.TourMediaServiceImpl;
-import com.trekking.app.features.tour.storage.CloudinaryImageStorage;
+import com.trekking.app.features.storage.ImageStorage;
+import com.trekking.app.features.storage.ImageStorageException;
+import com.trekking.app.features.storage.StoredImage;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -21,7 +22,6 @@ import org.junit.jupiter.api.Test;
 import org.mapstruct.factory.Mappers;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.http.HttpStatus;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
@@ -40,7 +40,7 @@ class TourMediaTests {
     private final List<TourMedia> images = new ArrayList<>();
     private TourRepository tours;
     private TourMediaRepository media;
-    private CloudinaryImageStorage storage;
+    private ImageStorage storage;
     private PlatformTransactionManager transactions;
     private MockMvc mvc;
 
@@ -48,13 +48,13 @@ class TourMediaTests {
     void setup() {
         tours = mock(TourRepository.class);
         media = mock(TourMediaRepository.class);
-        storage = mock(CloudinaryImageStorage.class);
+        storage = mock(ImageStorage.class);
         transactions = mock(PlatformTransactionManager.class);
         when(transactions.getTransaction(any())).thenAnswer(invocation -> new SimpleTransactionStatus());
         when(tours.existsById(1L)).thenReturn(true);
         when(tours.findLockedById(1L)).thenReturn(Optional.of(new Tour()));
-        when(storage.upload(eq(1L), any())).thenReturn(new CloudinaryImageStorage.UploadedImage(
-                "trekking/tours/1/new", "https://res.cloudinary.com/demo/image/upload/new.jpg"));
+        when(storage.upload(any(), eq("trekking/tours/1"))).thenReturn(new StoredImage(
+                "https://res.cloudinary.com/demo/image/upload/new.jpg", "trekking/tours/1/new"));
         when(media.findAllByTourIdOrderByDisplayOrderAscIdAsc(1L)).thenAnswer(invocation -> images.stream()
                 .sorted(Comparator.comparing(TourMedia::getDisplayOrder).thenComparing(TourMedia::getId)).toList());
         when(media.findByIdAndTourIdAndMediaType(anyLong(), eq(1L), eq(MediaType.IMAGE)))
@@ -75,12 +75,12 @@ class TourMediaTests {
     }
 
     @Test
-    void uploadSavesCloudinaryIdAndSelectsFirstImageAsCover() throws Exception {
+    void uploadSavesStorageKeyAndSelectsFirstImageAsCover() throws Exception {
         mvc.perform(multipart(PATH).file(file()).param("caption", "  Summit  "))
                 .andExpect(status().isCreated()).andExpect(jsonPath("$.isCover").value(true))
                 .andExpect(jsonPath("$.displayOrder").value(0)).andExpect(jsonPath("$.caption").value("Summit"))
                 .andExpect(jsonPath("$.cloudinaryPublicId").doesNotExist());
-        assertThat(images.getFirst().getCloudinaryPublicId()).isEqualTo("trekking/tours/1/new");
+        assertThat(images.getFirst().getStorageKey()).isEqualTo("trekking/tours/1/new");
         verify(transactions).commit(any());
     }
 
@@ -135,7 +135,7 @@ class TourMediaTests {
     }
 
     @Test
-    void deleteCoverPromotesFirstRemainingImageAndDeletesCloudinaryFileAfterFlush() throws Exception {
+    void deleteCoverPromotesFirstRemainingImageAndDeletesStoredFileAfterFlush() throws Exception {
         var cover = image(2, 0, true, "trekking/tours/1/cover");
         var next = image(3, 1, false, null);
         images.addAll(List.of(cover, next));
@@ -149,7 +149,7 @@ class TourMediaTests {
     }
 
     @Test
-    void legacyImageDeleteSkipsCloudinaryAndLastImageLeavesNoCover() throws Exception {
+    void legacyImageDeleteSkipsStorageAndLastImageLeavesNoCover() throws Exception {
         images.add(image(2, 0, true, null));
         mvc.perform(delete(PATH + "/2")).andExpect(status().isNoContent());
         assertThat(images).isEmpty();
@@ -157,7 +157,7 @@ class TourMediaTests {
     }
 
     @Test
-    void missingTourOrImageReturns404AndDoesNotCallCloudinary() throws Exception {
+    void missingTourOrImageReturns404AndDoesNotCallStorage() throws Exception {
         when(tours.existsById(1L)).thenReturn(false);
         mvc.perform(multipart(PATH).file(file())).andExpect(status().isNotFound());
         mvc.perform(delete(PATH + "/99")).andExpect(status().isNotFound());
@@ -167,8 +167,8 @@ class TourMediaTests {
     }
 
     @Test
-    void cloudinaryFailureReturns503WithoutSavingUpload() throws Exception {
-        when(storage.upload(eq(1L), any())).thenThrow(storageFailure());
+    void storageFailureReturns503WithoutSavingUpload() throws Exception {
+        when(storage.upload(any(), eq("trekking/tours/1"))).thenThrow(storageFailure());
         mvc.perform(multipart(PATH).file(file())).andExpect(status().isServiceUnavailable());
         verify(media, never()).saveAndFlush(any());
     }
@@ -187,7 +187,7 @@ class TourMediaTests {
     }
 
     @Test
-    void cloudinaryDeleteFailureIsReported() throws Exception {
+    void storageDeleteFailureIsReported() throws Exception {
         images.add(image(2, 0, true, "trekking/tours/1/image"));
         doThrow(storageFailure()).when(storage).delete("trekking/tours/1/image");
         mvc.perform(delete(PATH + "/2")).andExpect(status().isServiceUnavailable());
@@ -210,11 +210,11 @@ class TourMediaTests {
         image.setUrl("https://example.invalid/" + id + ".jpg");
         image.setDisplayOrder(order);
         image.setIsCover(cover);
-        image.setCloudinaryPublicId(publicId);
+        image.setStorageKey(publicId);
         return image;
     }
 
-    private static TourException storageFailure() {
-        return new TourException(HttpStatus.SERVICE_UNAVAILABLE, "IMAGE_STORAGE_UNAVAILABLE", "Cloudinary unavailable");
+    private static ImageStorageException storageFailure() {
+        return new ImageStorageException(ImageStorageException.Reason.UNAVAILABLE, "Image storage unavailable");
     }
 }

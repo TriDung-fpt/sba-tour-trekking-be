@@ -11,7 +11,9 @@ import com.trekking.app.features.tour.mapper.TourMapper;
 import com.trekking.app.features.tour.repository.TourMediaRepository;
 import com.trekking.app.features.tour.repository.TourRepository;
 import com.trekking.app.features.tour.service.TourMediaService;
-import com.trekking.app.features.tour.storage.CloudinaryImageStorage;
+import com.trekking.app.features.storage.ImageStorage;
+import com.trekking.app.features.storage.ImageStorageException;
+import com.trekking.app.features.storage.StoredImage;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -22,17 +24,18 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.web.multipart.MultipartFile;
 
 @Service
 public class TourMediaServiceImpl implements TourMediaService {
     private final TourRepository tours;
     private final TourMediaRepository media;
     private final TourMapper mapper;
-    private final CloudinaryImageStorage storage;
+    private final ImageStorage storage;
     private final TransactionTemplate transactions;
 
     public TourMediaServiceImpl(TourRepository tours, TourMediaRepository media, TourMapper mapper,
-                                CloudinaryImageStorage storage, PlatformTransactionManager transactionManager) {
+                                ImageStorage storage, PlatformTransactionManager transactionManager) {
         this.tours = tours;
         this.media = media;
         this.mapper = mapper;
@@ -45,7 +48,7 @@ public class TourMediaServiceImpl implements TourMediaService {
         if (!tours.existsById(tourId)) {
             throw notFound("Tour");
         }
-        var uploaded = storage.upload(tourId, request.file());
+        var uploaded = uploadImage("trekking/tours/" + tourId, request.file());
         try {
             // Catch failures at commit as well as flush, so the uploaded file can be removed.
             return transactions.execute(status -> {
@@ -55,14 +58,14 @@ public class TourMediaServiceImpl implements TourMediaService {
                 image.setTourId(tourId);
                 image.setMediaType(MediaType.IMAGE);
                 image.setUrl(uploaded.url());
-                image.setCloudinaryPublicId(uploaded.publicId());
+                image.setStorageKey(uploaded.key());
                 image.setCaption(caption(request.caption()));
                 image.setDisplayOrder(existing.stream().mapToInt(TourMedia::getDisplayOrder).max().orElse(-1) + 1);
                 image.setIsCover(existing.stream().noneMatch(item -> Boolean.TRUE.equals(item.getIsCover())));
                 return mapper.toResponse(media.saveAndFlush(image));
             });
         } catch (RuntimeException ex) {
-            storage.cleanup(uploaded.publicId());
+            storage.cleanup(uploaded.key());
             throw ex;
         }
     }
@@ -126,9 +129,9 @@ public class TourMediaServiceImpl implements TourMediaService {
                         media.saveAndFlush(next);
                     });
         }
-        // Flush DB changes first; a Cloudinary failure rolls back deletion and cover changes.
-        if (image.getCloudinaryPublicId() != null) {
-            storage.delete(image.getCloudinaryPublicId());
+        // Flush DB changes first; a storage failure rolls back deletion and cover changes.
+        if (image.getStorageKey() != null) {
+            deleteImage(image.getStorageKey());
         }
     }
 
@@ -139,6 +142,35 @@ public class TourMediaServiceImpl implements TourMediaService {
 
     private void lockTour(long tourId) {
         tours.findLockedById(tourId).orElseThrow(() -> notFound("Tour"));
+    }
+
+    private StoredImage uploadImage(String folder, MultipartFile file) {
+        try {
+            return storage.upload(file, folder);
+        } catch (ImageStorageException ex) {
+            throw mapStorageError(ex);
+        }
+    }
+
+    private void deleteImage(String key) {
+        try {
+            storage.delete(key);
+        } catch (ImageStorageException ex) {
+            throw mapStorageError(ex);
+        }
+    }
+
+    private static TourException mapStorageError(ImageStorageException ex) {
+        return switch (ex.getReason()) {
+            case INVALID_IMAGE -> new TourException(HttpStatus.BAD_REQUEST, "INVALID_IMAGE",
+                    "File must be a non-empty JPEG, PNG or WebP image", Map.of("file", "Choose a non-empty JPEG, PNG or WebP image"));
+            case FILE_TOO_LARGE -> new TourException(HttpStatus.PAYLOAD_TOO_LARGE, "MAX_UPLOAD_SIZE",
+                    "File must not exceed 5 MB", Map.of("file", "Must not exceed 5 MB"));
+            case NOT_CONFIGURED -> new TourException(HttpStatus.SERVICE_UNAVAILABLE, "IMAGE_STORAGE_NOT_CONFIGURED",
+                    "Image storage credentials are not configured");
+            case UNAVAILABLE -> new TourException(HttpStatus.SERVICE_UNAVAILABLE, "IMAGE_STORAGE_UNAVAILABLE",
+                    "Image storage is temporarily unavailable");
+        };
     }
 
     private static String caption(String value) {

@@ -1,16 +1,15 @@
-package com.trekking.app.features.tour;
+package com.trekking.app.features.storage;
 
 import com.cloudinary.Cloudinary;
 import com.cloudinary.Uploader;
-import com.trekking.app.features.tour.config.CloudinaryProperties;
-import com.trekking.app.features.tour.exception.TourException;
-import com.trekking.app.features.tour.storage.CloudinaryImageStorage;
+import com.trekking.app.features.storage.CloudinaryImageStorage;
+import com.trekking.app.features.storage.ImageStorageException;
+import com.trekking.app.features.storage.config.CloudinaryProperties;
 import java.io.IOException;
 import java.util.Base64;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpStatus;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -40,18 +39,18 @@ class CloudinaryImageStorageTests {
 
     @Test
     void uploadsImageBytesUsingServerGeneratedPublicId() {
-        var result = storage.upload(3L, png());
-        assertThat(result.publicId()).startsWith("trekking/tours/3/");
+        var result = storage.upload(png(), "trekking/tours/3");
+        assertThat(result.key()).startsWith("trekking/tours/3/");
         assertThat(result.url()).startsWith("https://");
     }
 
     @Test
     void rejectsEmptyAndDisguisedNonImageFilesBeforeNetworkCall() {
         var fake = new MockMultipartFile("file", "fake.jpg", "image/jpeg", "not an image".getBytes());
-        assertThatThrownBy(() -> storage.upload(3L, fake)).isInstanceOfSatisfying(TourException.class,
-                ex -> assertThat(ex.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST));
-        assertThatThrownBy(() -> storage.upload(3L, new MockMultipartFile("file", new byte[0])))
-                .isInstanceOf(TourException.class);
+        assertThatThrownBy(() -> storage.upload(fake, "trekking/tours/3")).isInstanceOfSatisfying(ImageStorageException.class,
+                ex -> assertThat(ex.getReason()).isEqualTo(ImageStorageException.Reason.INVALID_IMAGE));
+        assertThatThrownBy(() -> storage.upload(new MockMultipartFile("file", new byte[0]), "trekking/tours/3"))
+                .isInstanceOf(ImageStorageException.class);
         verifyNoInteractions(cloudinary);
     }
 
@@ -59,36 +58,36 @@ class CloudinaryImageStorageTests {
     void rejectsOversizedFilesAndMissingConfigurationBeforeNetworkCall() {
         var large = mock(MultipartFile.class);
         when(large.getSize()).thenReturn(5L * 1024 * 1024 + 1);
-        assertThatThrownBy(() -> storage.upload(3L, large)).isInstanceOfSatisfying(TourException.class,
-                ex -> assertThat(ex.getStatus()).isEqualTo(HttpStatus.PAYLOAD_TOO_LARGE));
+        assertThatThrownBy(() -> storage.upload(large, "trekking/tours/3")).isInstanceOfSatisfying(ImageStorageException.class,
+                ex -> assertThat(ex.getReason()).isEqualTo(ImageStorageException.Reason.FILE_TOO_LARGE));
         var disabled = new CloudinaryImageStorage(cloudinary, new CloudinaryProperties("", "", ""));
-        assertThatThrownBy(() -> disabled.upload(3L, png())).isInstanceOfSatisfying(TourException.class,
-                ex -> assertThat(ex.getCode()).isEqualTo("IMAGE_STORAGE_NOT_CONFIGURED"));
+        assertThatThrownBy(() -> disabled.upload(png(), "trekking/tours/3")).isInstanceOfSatisfying(ImageStorageException.class,
+                ex -> assertThat(ex.getReason()).isEqualTo(ImageStorageException.Reason.NOT_CONFIGURED));
         verifyNoInteractions(cloudinary);
     }
 
     @Test
     void cloudinaryImageDecodeErrorIs400AndAuthenticationErrorIs503() throws IOException {
-        when(uploader.upload(any(), anyMap())).thenReturn(Map.of("error", Map.of("http_code", 400)));
-        assertThatThrownBy(() -> storage.upload(3L, png())).isInstanceOfSatisfying(TourException.class,
-                ex -> assertThat(ex.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST));
-        when(uploader.upload(any(), anyMap())).thenReturn(Map.of("error", Map.of("http_code", 401)));
-        assertThatThrownBy(() -> storage.upload(3L, png())).isInstanceOfSatisfying(TourException.class,
-                ex -> assertThat(ex.getStatus()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE));
+        doReturn(Map.of("error", Map.of("http_code", 400))).when(uploader).upload(any(), anyMap());
+        assertThatThrownBy(() -> storage.upload(png(), "trekking/tours/3")).isInstanceOfSatisfying(ImageStorageException.class,
+                ex -> assertThat(ex.getReason()).isEqualTo(ImageStorageException.Reason.INVALID_IMAGE));
+        doReturn(Map.of("error", Map.of("http_code", 401))).when(uploader).upload(any(), anyMap());
+        assertThatThrownBy(() -> storage.upload(png(), "trekking/tours/3")).isInstanceOfSatisfying(ImageStorageException.class,
+                ex -> assertThat(ex.getReason()).isEqualTo(ImageStorageException.Reason.UNAVAILABLE));
     }
 
     @Test
     void networkFailureAttemptsCleanupAndReturns503() throws IOException {
-        when(uploader.upload(any(), anyMap())).thenThrow(new IOException("timeout"));
-        assertThatThrownBy(() -> storage.upload(3L, png())).isInstanceOfSatisfying(TourException.class,
-                ex -> assertThat(ex.getStatus()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE));
+        doThrow(new IOException("timeout")).when(uploader).upload(any(), anyMap());
+        assertThatThrownBy(() -> storage.upload(png(), "trekking/tours/3")).isInstanceOfSatisfying(ImageStorageException.class,
+                ex -> assertThat(ex.getReason()).isEqualTo(ImageStorageException.Reason.UNAVAILABLE));
         verify(uploader).destroy(startsWith("trekking/tours/3/"), anyMap());
     }
 
     @Test
     void malformedUploadResponseAttemptsCleanup() throws IOException {
-        when(uploader.upload(any(), anyMap())).thenReturn(Map.of("secure_url", "http://invalid"));
-        assertThatThrownBy(() -> storage.upload(3L, png())).isInstanceOf(TourException.class);
+        doReturn(Map.of("secure_url", "http://invalid")).when(uploader).upload(any(), anyMap());
+        assertThatThrownBy(() -> storage.upload(png(), "trekking/tours/3")).isInstanceOf(ImageStorageException.class);
         verify(uploader).destroy(startsWith("trekking/tours/3/"), anyMap());
     }
 
@@ -97,8 +96,8 @@ class CloudinaryImageStorageTests {
         when(uploader.destroy(anyString(), anyMap())).thenReturn(Map.of("result", "not found"));
         assertThatCode(() -> storage.delete("trekking/tours/3/image")).doesNotThrowAnyException();
         when(uploader.destroy(anyString(), anyMap())).thenThrow(new IOException("offline"));
-        assertThatThrownBy(() -> storage.delete("trekking/tours/3/image")).isInstanceOfSatisfying(TourException.class,
-                ex -> assertThat(ex.getStatus()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE));
+        assertThatThrownBy(() -> storage.delete("trekking/tours/3/image")).isInstanceOfSatisfying(ImageStorageException.class,
+                ex -> assertThat(ex.getReason()).isEqualTo(ImageStorageException.Reason.UNAVAILABLE));
         assertThatCode(() -> storage.cleanup("trekking/tours/3/image")).doesNotThrowAnyException();
     }
 

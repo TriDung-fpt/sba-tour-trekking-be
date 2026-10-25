@@ -11,5 +11,5 @@ public interface TourMediaRepository extends JpaRepository<TourMedia, Long> {
     List<TourMedia> findAllByTourIdInAndIsCoverTrue(Collection<Long> tourIds);
     List<TourMedia> findAllByTourIdOrderByDisplayOrderAscIdAsc(long tourId);
     Optional<TourMedia> findByIdAndTourIdAndMediaType(long mediaId, long tourId, MediaType mediaType);
-    boolean existsByTourIdAndCloudinaryPublicIdIsNotNull(long tourId);
+    boolean existsByTourIdAndStorageKeyIsNotNull(long tourId);
 }

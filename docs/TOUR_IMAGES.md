@@ -14,10 +14,13 @@ Không commit `.env`. Nếu để trống, backend vẫn khởi động; tải/x
 trả 503 `IMAGE_STORAGE_NOT_CONFIGURED`. Sửa chú thích, thứ tự và chọn bìa vẫn dùng
 được với ảnh đã có trong database.
 
-Database đang ở migration 007 cần áp dụng
-`schema/migrations/008_add_tour_cloudinary_public_id.sql` trước khi chạy code mới.
-Compose chỉ chạy chuỗi migration tự động trên volume database mới. Tác vụ sửa code
-này không chạy migration hay xóa volume đang dùng.
+Tour dùng `features.storage.ImageStorage`; hiện tại Cloudinary là adapter lưu ảnh.
+Module khác có thể gọi cùng interface mà không cần dùng SDK Cloudinary trực tiếp.
+Database đã áp dụng migration 010 thì cần chạy tiếp 011 và 012; database cũ hơn
+cần chạy các migration còn thiếu theo thứ tự. Migration 010 đổi
+`cloudinary_public_id` thành `storage_key` và giữ nguyên giá trị đang có.
+Migration 011 thêm `image_url` và `storage_key` cho dụng cụ cùng gói thuê.
+Migration 012 ghi rõ giá thuê tính theo số gói hoặc số món được chọn.
 
 ## Thử bằng Postman
 
@@ -37,6 +40,17 @@ SecurityConfig hiện tại, các đường dẫn tour không yêu cầu CSRF to
 `TourMediaResponse`. Ảnh được thêm vào cuối danh sách; nếu tour chưa có ảnh bìa,
 ảnh mới tự thành bìa. Tên file và URL từ client không được dùng để chọn file
 Cloudinary; backend tạo `public_id` riêng cho từng lần tải.
+
+### Ảnh dụng cụ và gói thuê
+
+Catalog dùng chung cùng `ImageStorage`. Tải ảnh bằng multipart form-data, field
+`file`, tối đa 5 MB; mỗi dụng cụ và mỗi gói có một ảnh đại diện. GET catalog trả
+`imageUrl`, còn `storage_key` chỉ dùng nội bộ để thay hoặc xóa file.
+
+- `POST /api/v1/tours/equipment-catalog/{equipmentId}/image`
+- `DELETE /api/v1/tours/equipment-catalog/{equipmentId}/image`
+- `POST /api/v1/tours/rental-packages/{packageId}/image`
+- `DELETE /api/v1/tours/rental-packages/{packageId}/image`
 
 ### Sửa chú thích
 
@@ -70,7 +84,7 @@ sửa các bản ghi video cũ.
 
 `DELETE /api/v1/tours/3/media/12`, không cần body; thành công trả 204. Khi xóa ảnh
 bìa, ảnh đầu tiên còn lại theo thứ tự hiển thị trở thành bìa. Xóa ảnh cuối cùng thì
-tour không còn bìa. Bản ghi ảnh cũ có `cloudinary_public_id = NULL` chỉ bị xóa trong
+tour không còn bìa. Bản ghi ảnh cũ có `storage_key = NULL` chỉ bị xóa trong
 database; không đoán mã ảnh từ URL để xóa trên Cloudinary.
 
 Xem lại bằng `GET /api/v1/tours/3` (trường `media`) hoặc `GET /api/v1/tours`
@@ -83,7 +97,7 @@ Xem lại bằng `GET /api/v1/tours/3` (trường `media`) hoặc `GET /api/v1/t
 - Tour hoặc ảnh không thuộc tour: 404 `RESOURCE_NOT_FOUND`.
 - Cloudinary gặp lỗi hoặc sai khóa: 503 `IMAGE_STORAGE_UNAVAILABLE`.
 - Lưu database thất bại sau khi tải: backend thử xóa file vừa tạo, kể cả khi lỗi
-  xảy ra ở bước commit. Nếu xóa bù thất bại, log ghi public ID cần dọn thủ công.
+  xảy ra ở bước commit. Nếu xóa bù thất bại, log ghi storage key cần dọn thủ công.
 
 Thay đổi bìa, thứ tự, chú thích, xóa ảnh và lưu ảnh mới dùng cùng khóa trên tour.
 Ảnh bìa cũ được bỏ trước khi đặt ảnh mới để giữ ràng buộc `uq_tour_cover`.
@@ -97,7 +111,7 @@ nhưng commit database thất bại, lần xóa lại sẽ dọn bản ghi còn 
 ## Kiểm tra
 
 `TourMediaTests` kiểm tra API, ảnh bìa, thứ tự, ảnh cũ và dọn file khi lưu thất bại.
-`CloudinaryImageStorageTests` dùng SDK giả lập để kiểm tra định dạng, kích thước,
+`features.storage.CloudinaryImageStorageTests` dùng SDK giả lập để kiểm tra định dạng, kích thước,
 thiếu cấu hình và lỗi Cloudinary. `TourMediaIntegrationTests` dùng PostgreSQL để
 kiểm tra một ảnh bìa duy nhất và rollback khi Cloudinary gặp lỗi. Test không gửi
 ảnh lên tài khoản thật; các test tích hợp cần Docker.

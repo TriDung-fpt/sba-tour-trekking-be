@@ -80,6 +80,13 @@ public class TourServiceImpl implements TourService {
         return summaries(tours.findAll(filter, pageable));
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public Page<TourSummaryResponse> listPublic(String query, DifficultyLevel difficulty, Integer durationDays,
+                                                int page, int size) {
+        return list(query, difficulty, durationDays, TourStatus.PUBLISHED, page, size);
+    }
+
     private Page<TourSummaryResponse> summaries(Page<Tour> pageOfTours) {
         var tourIds = pageOfTours.getContent().stream().map(Tour::getId).toList();
         var covers = media.findAllByTourIdInAndIsCoverTrue(tourIds).stream()
@@ -91,6 +98,12 @@ public class TourServiceImpl implements TourService {
     @Transactional(readOnly = true)
     public TourDetailResponse read(long tourId) {
         return detail(requireTour(tourId));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public TourDetailResponse readPublic(long tourId) {
+        return detail(requirePublishedTour(tourId));
     }
 
     @Override
@@ -110,7 +123,7 @@ public class TourServiceImpl implements TourService {
         if (tour.getStatus() != TourStatus.DRAFT || schedules.existsByTourId(tourId)) {
             throw conflict("TOUR_NOT_DELETABLE", "Only draft tours without schedules can be deleted");
         }
-        if (media.existsByTourIdAndCloudinaryPublicIdIsNotNull(tourId)) {
+        if (media.existsByTourIdAndStorageKeyIsNotNull(tourId)) {
             throw conflict("TOUR_HAS_MEDIA", "Delete uploaded tour images before deleting the tour");
         }
         try {
@@ -150,9 +163,30 @@ public class TourServiceImpl implements TourService {
 
     @Override
     @Transactional(readOnly = true)
+    public Page<ScheduleSummaryResponse> listPublicUpcomingSchedules(long tourId, int page, int size) {
+        requirePublishedTour(tourId);
+        var pageable = pageRequest(page, size);
+        return schedules.findAllByTourIdAndStatusAndStartsAtAfterOrderByStartsAtAscIdAsc(
+                tourId, ScheduleStatus.SCHEDULED, OffsetDateTime.now(),
+                PageRequest.of(pageable.getPageNumber(), pageable.getPageSize())).map(mapper::toSummaryResponse);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public ScheduleDetailResponse readSchedule(long tourId, long scheduleId) {
         return mapper.toDetailResponse(schedules.findByIdAndTourId(scheduleId, tourId)
                 .orElseThrow(() -> notFound("Schedule")));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ScheduleDetailResponse readPublicSchedule(long tourId, long scheduleId) {
+        requirePublishedTour(tourId);
+        var schedule = schedules.findByIdAndTourId(scheduleId, tourId)
+                .filter(value -> value.getStatus() == ScheduleStatus.SCHEDULED
+                        && value.getStartsAt().isAfter(OffsetDateTime.now()))
+                .orElseThrow(() -> notFound("Schedule"));
+        return mapper.toDetailResponse(schedule);
     }
 
     @Override
@@ -176,6 +210,14 @@ public class TourServiceImpl implements TourService {
 
     private Tour requireTour(long tourId) {
         return tours.findById(tourId).orElseThrow(() -> notFound("Tour"));
+    }
+
+    private Tour requirePublishedTour(long tourId) {
+        var tour = requireTour(tourId);
+        if (tour.getStatus() != TourStatus.PUBLISHED) {
+            throw notFound("Tour");
+        }
+        return tour;
     }
 
     private TourDetailResponse detail(Tour tour) {
