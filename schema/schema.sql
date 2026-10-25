@@ -220,6 +220,7 @@ CREATE TABLE tour_media (
     tour_id BIGINT NOT NULL REFERENCES tours(id) ON DELETE CASCADE,
     media_type TEXT NOT NULL CHECK (media_type IN ('image','video')),
     url TEXT NOT NULL,
+    cloudinary_public_id TEXT,
     caption TEXT,
     display_order INTEGER NOT NULL DEFAULT 0,
     is_cover BOOLEAN NOT NULL DEFAULT FALSE,
@@ -228,6 +229,8 @@ CREATE TABLE tour_media (
 );
 COMMENT ON TABLE tour_media IS 'Ảnh/video giới thiệu tour; URL tới nơi lưu file.';
 CREATE UNIQUE INDEX uq_tour_cover ON tour_media(tour_id) WHERE is_cover;
+CREATE UNIQUE INDEX uq_tour_media_cloudinary_public_id ON tour_media(cloudinary_public_id)
+    WHERE cloudinary_public_id IS NOT NULL;
 
 -- Hoạt động trong lịch trình mẫu của tour.
 CREATE TABLE tour_activities (
@@ -259,7 +262,7 @@ CREATE TABLE tour_equipment_packages (
 COMMENT ON TABLE tour_equipment_packages IS 'Một gói dụng cụ mô tả cho mỗi tour; không phải kho hoặc mặt hàng thuê.';
 
 -- Đồ cần chuẩn bị; không có tồn kho.
-CREATE TABLE packing_items (
+CREATE TABLE tour_required_items (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     tour_id BIGINT NOT NULL REFERENCES tours(id) ON DELETE CASCADE,
     name VARCHAR(200) NOT NULL,
@@ -269,7 +272,7 @@ CREATE TABLE packing_items (
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
-COMMENT ON TABLE packing_items IS 'Đồ cần chuẩn bị; không có tồn kho.';
+COMMENT ON TABLE tour_required_items IS 'Đồ khách cần chuẩn bị; không quản lý tồn kho.';
 
 -- Chuyến cụ thể; backend cập nhật counter chỗ trong transaction có khóa.
 CREATE TABLE tour_schedules (
@@ -741,7 +744,7 @@ CREATE INDEX ix_tours_cancellation_policy_version_id ON tours(cancellation_polic
 CREATE INDEX ix_tour_locations_location_id ON tour_locations(location_id);
 CREATE INDEX ix_tour_media_tour_id ON tour_media(tour_id);
 CREATE INDEX ix_tour_activities_tour_id ON tour_activities(tour_id);
-CREATE INDEX ix_packing_items_tour_id ON packing_items(tour_id);
+CREATE INDEX ix_tour_required_items_tour_id ON tour_required_items(tour_id);
 CREATE INDEX ix_tour_schedules_tour_id ON tour_schedules(tour_id);
 CREATE INDEX ix_tour_schedules_company_id ON tour_schedules(company_id);
 CREATE INDEX ix_schedule_guides_guide_id ON schedule_guides(guide_id);
@@ -790,7 +793,7 @@ CREATE TRIGGER trg_tour_locations_updated BEFORE UPDATE ON tour_locations FOR EA
 CREATE TRIGGER trg_tour_media_updated BEFORE UPDATE ON tour_media FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 CREATE TRIGGER trg_tour_activities_updated BEFORE UPDATE ON tour_activities FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 CREATE TRIGGER trg_tour_equipment_packages_updated BEFORE UPDATE ON tour_equipment_packages FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER trg_packing_items_updated BEFORE UPDATE ON packing_items FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+CREATE TRIGGER trg_tour_required_items_updated BEFORE UPDATE ON tour_required_items FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 CREATE TRIGGER trg_tour_schedules_updated BEFORE UPDATE ON tour_schedules FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 CREATE TRIGGER trg_schedule_guides_updated BEFORE UPDATE ON schedule_guides FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 CREATE TRIGGER trg_carts_updated BEFORE UPDATE ON carts FOR EACH ROW EXECUTE FUNCTION set_updated_at();

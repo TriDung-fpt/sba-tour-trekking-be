@@ -96,6 +96,7 @@ public class AuthServiceImpl implements AuthService {
     private void sendOtp(AppAccount account, OtpPurpose purpose, boolean reportFailure) {
         String email = AuthInputNormalizer.email(account.getEmail());
         String code = crypto.otp();
+        System.out.println(code);
         String hash = transactions.otpHash(email, purpose, code);
         store.putOtp(email, purpose, hash, transactions.context(account));
         try { mail.send(email, code, purpose); }

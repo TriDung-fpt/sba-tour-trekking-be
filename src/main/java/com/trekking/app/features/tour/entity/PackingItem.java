@@ -11,7 +11,7 @@ import lombok.Setter;
 @Setter
 @NoArgsConstructor
 @Entity
-@Table(name = "packing_items", schema = "trekking")
+@Table(name = "tour_required_items", schema = "trekking")
 public class PackingItem extends TimestampedEntity {
 
     @Id
@@ -22,6 +22,9 @@ public class PackingItem extends TimestampedEntity {
 
     @Column(name = "tour_id", nullable = false)
     private Long tourId;
+
+    @Column(name = "equipment_id")
+    private Long equipmentId;
 
     @Column(name = "name", nullable = false, length = 200)
     private String name;

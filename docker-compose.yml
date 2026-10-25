@@ -53,6 +53,12 @@ services:
       - ./schema/migrations/004_add_financial_permissions.sql:/docker-entrypoint-initdb.d/05_financial_permissions.sql:ro
       - ./schema/migrations/005_single_operator_foundation.sql:/docker-entrypoint-initdb.d/06_single_operator_foundation.sql:ro
       - ./schema/migrations/006_remove_company_domain.sql:/docker-entrypoint-initdb.d/07_remove_company_domain.sql:ro
+      - ./schema/migrations/007_add_tour_equipment_catalog.sql:/docker-entrypoint-initdb.d/08_add_tour_equipment_catalog.sql:ro
+      - ./schema/migrations/008_add_tour_cloudinary_public_id.sql:/docker-entrypoint-initdb.d/09_add_tour_cloudinary_public_id.sql:ro
+      - ./schema/migrations/009_add_rental_package_templates.sql:/docker-entrypoint-initdb.d/10_add_rental_package_templates.sql:ro
+      - ./schema/migrations/010_abstract_tour_media_storage_key.sql:/docker-entrypoint-initdb.d/11_abstract_tour_media_storage_key.sql:ro
+      - ./schema/migrations/011_add_equipment_catalog_images.sql:/docker-entrypoint-initdb.d/12_add_equipment_catalog_images.sql:ro
+      - ./schema/migrations/012_define_rental_price_units.sql:/docker-entrypoint-initdb.d/13_define_rental_price_units.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 5s
