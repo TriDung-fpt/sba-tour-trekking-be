@@ -8,6 +8,7 @@ import com.trekking.app.features.tour.entity.TourSchedule;
 import jakarta.persistence.*;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.util.Map;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -54,6 +55,9 @@ public class Booking extends TimestampedEntity {
     @Column(name = "equipment_fee_vnd", nullable = false)
     private Long equipmentFeeVnd;
 
+    @Column(name = "group_rental_fee_vnd")
+    private Long groupRentalFeeVnd;
+
     @Generated(event = {EventType.INSERT, EventType.UPDATE})
     @Setter(AccessLevel.NONE)
     @Column(name = "total_price_vnd", insertable = false, updatable = false)
@@ -67,11 +71,11 @@ public class Booking extends TimestampedEntity {
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "policy_snapshot", nullable = false, columnDefinition = "jsonb")
-    private String policySnapshot;
+    private Map<String, Object> policySnapshot;
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "equipment_snapshot", nullable = false, columnDefinition = "jsonb")
-    private String equipmentSnapshot = "{}";
+    private Map<String, Object> equipmentSnapshot = Map.of();
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, columnDefinition = "text")

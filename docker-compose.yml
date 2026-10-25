@@ -59,6 +59,8 @@ services:
       - ./schema/migrations/010_abstract_tour_media_storage_key.sql:/docker-entrypoint-initdb.d/11_abstract_tour_media_storage_key.sql:ro
       - ./schema/migrations/011_add_equipment_catalog_images.sql:/docker-entrypoint-initdb.d/12_add_equipment_catalog_images.sql:ro
       - ./schema/migrations/012_define_rental_price_units.sql:/docker-entrypoint-initdb.d/13_define_rental_price_units.sql:ro
+      - ./schema/migrations/013_booking_group_rental_total.sql:/docker-entrypoint-initdb.d/14_booking_group_rental_total.sql:ro
+      - ./schema/migrations/014_protect_booking_group_rental_snapshot.sql:/docker-entrypoint-initdb.d/15_protect_booking_group_rental_snapshot.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 5s
