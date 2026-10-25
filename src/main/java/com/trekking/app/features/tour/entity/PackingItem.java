@@ -23,6 +23,9 @@ public class PackingItem extends TimestampedEntity {
     @Column(name = "tour_id", nullable = false)
     private Long tourId;
 
+    @Column(name = "equipment_id")
+    private Long equipmentId;
+
     @Column(name = "name", nullable = false, length = 200)
     private String name;
 

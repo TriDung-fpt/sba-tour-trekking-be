@@ -13,6 +13,7 @@ import com.trekking.app.features.tour.entity.Tour;
 import com.trekking.app.features.tour.entity.TourSchedule;
 import com.trekking.app.features.tour.entity.TourMedia;
 import com.trekking.app.features.tour.enums.ScheduleStatus;
+import com.trekking.app.features.tour.enums.DifficultyLevel;
 import com.trekking.app.features.tour.enums.TourStatus;
 import com.trekking.app.features.tour.mapper.TourMapper;
 import com.trekking.app.features.tour.repository.TourRepository;
@@ -22,10 +23,12 @@ import com.trekking.app.features.tour.service.TourService;
 import java.time.OffsetDateTime;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Locale;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -54,7 +57,30 @@ public class TourServiceImpl implements TourService {
     @Override
     @Transactional(readOnly = true)
     public Page<TourSummaryResponse> list(int page, int size) {
-        var pageOfTours = tours.findAll(pageRequest(page, size));
+        return summaries(tours.findAll(pageRequest(page, size)));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<TourSummaryResponse> list(String query, DifficultyLevel difficulty, Integer durationDays,
+                                         TourStatus status, int page, int size) {
+        var pageable = pageRequest(page, size);
+        if (durationDays != null && durationDays < 1) {
+            throw new TourException(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", "Invalid duration",
+                    Map.of("durationDays", "Must be positive"));
+        }
+        Specification<Tour> filter = (root, q, cb) -> cb.conjunction();
+        if (query != null && !query.isBlank()) {
+            var term = query.trim().toLowerCase(Locale.ROOT).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+            filter = filter.and((root, q, cb) -> cb.like(cb.lower(root.get("title")), "%" + term + "%", '\\'));
+        }
+        if (difficulty != null) filter = filter.and((root, q, cb) -> cb.equal(root.get("difficulty"), difficulty));
+        if (durationDays != null) filter = filter.and((root, q, cb) -> cb.equal(root.get("durationDays"), durationDays));
+        if (status != null) filter = filter.and((root, q, cb) -> cb.equal(root.get("status"), status));
+        return summaries(tours.findAll(filter, pageable));
+    }
+
+    private Page<TourSummaryResponse> summaries(Page<Tour> pageOfTours) {
         var tourIds = pageOfTours.getContent().stream().map(Tour::getId).toList();
         var covers = media.findAllByTourIdInAndIsCoverTrue(tourIds).stream()
                 .collect(java.util.stream.Collectors.toMap(TourMedia::getTourId, TourMedia::getUrl));
@@ -110,6 +136,16 @@ public class TourServiceImpl implements TourService {
     public Page<ScheduleSummaryResponse> listSchedules(long tourId, int page, int size) {
         requireTour(tourId);
         return schedules.findAllByTourId(tourId, pageRequest(page, size)).map(mapper::toSummaryResponse);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<ScheduleSummaryResponse> listUpcomingSchedules(long tourId, int page, int size) {
+        requireTour(tourId);
+        var pageable = pageRequest(page, size);
+        return schedules.findAllByTourIdAndStatusAndStartsAtAfterOrderByStartsAtAscIdAsc(
+                tourId, ScheduleStatus.SCHEDULED, OffsetDateTime.now(),
+                PageRequest.of(pageable.getPageNumber(), pageable.getPageSize())).map(mapper::toSummaryResponse);
     }
 
     @Override

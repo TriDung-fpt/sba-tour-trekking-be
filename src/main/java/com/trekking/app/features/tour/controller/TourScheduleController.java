@@ -30,8 +30,9 @@ public class TourScheduleController {
     @GetMapping
     public Page<ScheduleSummaryResponse> list(@PathVariable long tourId,
                                               @RequestParam(defaultValue = "0") int page,
-                                              @RequestParam(defaultValue = "20") int size) {
-        return tours.listSchedules(tourId, page, size);
+                                              @RequestParam(defaultValue = "20") int size,
+                                              @RequestParam(defaultValue = "false") boolean upcomingOnly) {
+        return upcomingOnly ? tours.listUpcomingSchedules(tourId, page, size) : tours.listSchedules(tourId, page, size);
     }
 
     @GetMapping("/{scheduleId}")

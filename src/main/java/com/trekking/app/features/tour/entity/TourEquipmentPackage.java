@@ -35,6 +35,9 @@ public class TourEquipmentPackage extends TimestampedEntity {
     @Column(name = "personal_items_to_bring", columnDefinition = "text")
     private String personalItemsToBring;
 
+    @Column(name = "rental_price_vnd")
+    private Long rentalPriceVnd;
+
     @OneToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "tour_id", referencedColumnName = "id", insertable = false, updatable = false)
     @Setter(AccessLevel.NONE)

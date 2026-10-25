@@ -5,6 +5,8 @@ import com.trekking.app.features.tour.dto.request.UpdateTourRequest;
 import com.trekking.app.features.tour.dto.response.TourDetailResponse;
 import com.trekking.app.features.tour.dto.response.TourSummaryResponse;
 import com.trekking.app.features.tour.service.TourService;
+import com.trekking.app.features.tour.enums.DifficultyLevel;
+import com.trekking.app.features.tour.enums.TourStatus;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
@@ -29,8 +31,15 @@ public class TourController {
 
     @GetMapping
     public Page<TourSummaryResponse> list(@RequestParam(defaultValue = "0") int page,
-                                          @RequestParam(defaultValue = "20") int size) {
-        return tours.list(page, size);
+                                          @RequestParam(defaultValue = "20") int size,
+                                          @RequestParam(required = false) String query,
+                                          @RequestParam(required = false) DifficultyLevel difficulty,
+                                          @RequestParam(required = false) Integer durationDays,
+                                          @RequestParam(required = false) TourStatus status) {
+        if (query == null && difficulty == null && durationDays == null && status == null) {
+            return tours.list(page, size);
+        }
+        return tours.list(query, difficulty, durationDays, status, page, size);
     }
 
     @GetMapping("/{tourId}")

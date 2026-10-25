@@ -3,6 +3,8 @@ package com.trekking.app.features.tour.repository;
 import com.trekking.app.features.tour.entity.TourSchedule;
 import jakarta.persistence.LockModeType;
 import java.util.Optional;
+import java.time.OffsetDateTime;
+import com.trekking.app.features.tour.enums.ScheduleStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -12,6 +14,8 @@ import org.springframework.data.repository.query.Param;
 
 public interface TourScheduleRepository extends JpaRepository<TourSchedule, Long> {
     Page<TourSchedule> findAllByTourId(long tourId, Pageable pageable);
+    Page<TourSchedule> findAllByTourIdAndStatusAndStartsAtAfterOrderByStartsAtAscIdAsc(
+            long tourId, ScheduleStatus status, OffsetDateTime now, Pageable pageable);
     Optional<TourSchedule> findByIdAndTourId(long id, long tourId);
     boolean existsByTourId(long tourId);
 

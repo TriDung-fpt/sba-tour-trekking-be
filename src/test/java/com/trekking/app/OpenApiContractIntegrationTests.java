@@ -67,6 +67,8 @@ class OpenApiContractIntegrationTests extends AuthTestInfrastructure {
             "PUT /api/v1/tours/{tourId}/schedules/{scheduleId}",
             "DELETE /api/v1/tours/{tourId}/schedules/{scheduleId}",
             "GET /api/v1/tours/{tourId}/activities",
+            "GET /api/v1/tours/{tourId}/required-items",
+            "GET /api/v1/tours/{tourId}/equipment",
             "POST /api/v1/tours/{tourId}/activities",
             "PUT /api/v1/tours/{tourId}/activities/{activityId}",
             "DELETE /api/v1/tours/{tourId}/activities/{activityId}",

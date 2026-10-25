@@ -30,6 +30,27 @@ on Tour is unnecessary: schedules are queried and paginated by tourId.
 | PATCH | /api/v1/tours/{tourId}/media/{mediaId}/cover | Select cover image |
 | PUT | /api/v1/tours/{tourId}/media/order | Set image order |
 | DELETE | /api/v1/tours/{tourId}/media/{mediaId} | Delete image, 204 |
+| GET | /api/v1/tours/{tourId}/required-items | Required/personal items checklist |
+| GET | /api/v1/tours/{tourId}/equipment | Package contents and individual rental prices |
+
+The existing tour list now accepts optional `query` (case-insensitive literal title
+substring), `difficulty`, `durationDays` (positive), and `status` filters. Customers
+send `status=PUBLISHED`. Filters apply before pagination; omitted filters retain the
+management list behavior. There is no separate catalog endpoint or new role logic.
+Schedule lists accept `upcomingOnly=true` to return future SCHEDULED departures in
+start-time/id order. Omitting it preserves the original list behavior.
+
+The two equipment reads use the tables/columns already added by migration 007.
+An unconfigured package returns `{ "equipmentPackage": null, "items": [] }`.
+Package rental price is per participant per tour; individual price is per item per
+tour. NULL price means not configured/not rentable; zero is a valid configured
+price. The old schedule equipment fee is not added on top of the structured
+package price. These APIs provide configuration, not inventory or reservation.
+They keep the existing authenticated access behavior and 404 for a missing tour.
+
+The frontend integration contract is documented in the sibling frontend project:
+`docs/TOUR_API_CONTRACT.md`. Customer preparation stops at review, with no booking
+or payment write, and hands IDs and traveler/rental choices to the Booking owner.
 
 Lists are sorted by id ascending. Page is zero based; size is 1..100. GET list
 responses contain summary fields; GET by ID and successful POST/PUT responses
