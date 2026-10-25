@@ -127,9 +127,9 @@ public class TourEquipmentServiceImpl implements TourEquipmentService {
         for (Equipment item : individualEquipment) {
             tourRows.add(toTourItem(packageId, item, 1, item.getIndividualRentalPriceVnd()));
         }
-        items.saveAll(tourRows);
+        List<TourEquipmentItem> savedItems = items.saveAll(tourRows);
         return new TourEquipmentResponse(mapper.toResponse(tourPackage),
-                items.findAllByPackageIdOrderByIdAsc(packageId).stream().map(mapper::toResponse).toList());
+                savedItems.stream().map(mapper::toResponse).toList());
     }
 
     private static TourEquipmentItem toTourItem(long packageId, Equipment equipment, int quantity, Long price) {
@@ -138,6 +138,7 @@ public class TourEquipmentServiceImpl implements TourEquipmentService {
         item.setEquipmentId(equipment.getId());
         item.setQuantityInPackage(quantity);
         item.setIndividualRentalPriceVnd(price);
+        item.setEquipment(equipment);
         return item;
     }
 
