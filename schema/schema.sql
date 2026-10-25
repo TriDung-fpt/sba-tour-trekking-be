@@ -394,7 +394,6 @@ CREATE TABLE payment_attempts (
     booking_id BIGINT NOT NULL REFERENCES bookings(id),
     provider TEXT NOT NULL CHECK (provider IN ('payos','vnpay','manual')),
     merchant_reference VARCHAR(150) NOT NULL,
-    checkout_url TEXT,
     purpose TEXT NOT NULL CHECK (purpose IN ('deposit','balance','full')),
     requested_amount_vnd BIGINT NOT NULL CHECK (requested_amount_vnd > 0),
     status TEXT NOT NULL DEFAULT 'created' CHECK (status IN ('created','pending','succeeded','failed','expired')),

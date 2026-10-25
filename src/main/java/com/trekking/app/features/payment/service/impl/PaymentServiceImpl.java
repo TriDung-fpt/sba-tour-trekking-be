@@ -19,6 +19,7 @@ import com.trekking.app.features.payment.repository.CustomerPaymentRepository;
 import com.trekking.app.features.payment.repository.PaymentAttemptRepository;
 import com.trekking.app.features.payment.repository.PaymentNoticeRepository;
 import com.trekking.app.features.payment.service.PaymentService;
+import com.trekking.app.features.equipment.service.EquipmentReservationService;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import java.math.BigDecimal;
@@ -43,12 +44,13 @@ public class PaymentServiceImpl implements PaymentService {
     private final BusinessAuthorizationService businessAuthorization;
     private final EntityManager entities;
     private final PayOsGateway gateway;
+    private final EquipmentReservationService equipmentReservations;
     private final ObjectMapper json;
     private final Clock clock;
 
     public PaymentServiceImpl(PaymentAttemptRepository attempts, CustomerPaymentRepository payments,
                               PaymentNoticeRepository notices, BusinessAuthorizationService businessAuthorization,
-                              EntityManager entities, PayOsGateway gateway,
+                              EntityManager entities, PayOsGateway gateway, EquipmentReservationService equipmentReservations,
                               ObjectMapper json, Clock clock) {
         this.attempts = attempts;
         this.payments = payments;
@@ -56,6 +58,7 @@ public class PaymentServiceImpl implements PaymentService {
         this.businessAuthorization = businessAuthorization;
         this.entities = entities;
         this.gateway = gateway;
+        this.equipmentReservations = equipmentReservations;
         this.json = json;
         this.clock = clock;
     }
@@ -182,6 +185,7 @@ public class PaymentServiceImpl implements PaymentService {
         payments.save(payment);
         attempt.setStatus(PaymentStatus.SUCCEEDED);
         attempts.save(attempt);
+        if (!late && !exceedsOutstanding) equipmentReservations.confirm(attempt.getBookingId());
         if (late) notice.setProcessingError("Payment arrived after the attempt or booking expired; manual review required");
         else if (exceedsOutstanding) notice.setProcessingError("Payment exceeds the remaining booking amount; manual review required");
         notice.setProcessedAt(OffsetDateTime.now(clock));
