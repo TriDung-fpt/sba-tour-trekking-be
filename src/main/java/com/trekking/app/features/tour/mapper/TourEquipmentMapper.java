@@ -11,6 +11,7 @@ import org.mapstruct.ReportingPolicy;
 public interface TourEquipmentMapper {
     RequiredItemResponse toResponse(PackingItem item);
     RentalPackageResponse toResponse(TourEquipmentPackage equipmentPackage);
+    EquipmentCatalogResponse toResponse(Equipment equipment);
     @Mapping(target = "name", source = "equipment.name")
     @Mapping(target = "description", source = "equipment.description")
     RentalItemResponse toResponse(TourEquipmentItem item);

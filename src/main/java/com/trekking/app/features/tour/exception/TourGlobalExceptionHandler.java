@@ -90,7 +90,7 @@ public class TourGlobalExceptionHandler {
                             "Activity location does not exist", Map.of("locationId", "Choose an existing location"));
                     case "uq_tour_cover" -> new ApiError("TOUR_COVER_CONFLICT",
                             "Tour already has a cover image", Map.of("mediaId", "Reload the tour and select the cover again"));
-                    case "uq_tour_media_cloudinary_public_id" -> new ApiError("TOUR_IMAGE_CONFLICT",
+                    case "uq_tour_media_storage_key" -> new ApiError("TOUR_IMAGE_CONFLICT",
                             "This image is already stored", Map.of("file", "Upload the image again"));
                     case "tours_cancellation_policy_version_id_fkey" -> new ApiError("INVALID_CANCELLATION_POLICY",
                             "Cancellation policy does not exist",

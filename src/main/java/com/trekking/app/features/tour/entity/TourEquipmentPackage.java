@@ -23,6 +23,9 @@ public class TourEquipmentPackage extends TimestampedEntity {
     @Column(name = "tour_id", nullable = false)
     private Long tourId;
 
+    @Column(name = "package_template_id")
+    private Long packageTemplateId;
+
     @Column(name = "title", nullable = false, length = 200)
     private String title;
 

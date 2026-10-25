@@ -32,21 +32,35 @@ on Tour is unnecessary: schedules are queried and paginated by tourId.
 | DELETE | /api/v1/tours/{tourId}/media/{mediaId} | Delete image, 204 |
 | GET | /api/v1/tours/{tourId}/required-items | Required/personal items checklist |
 | GET | /api/v1/tours/{tourId}/equipment | Package contents and individual rental prices |
+| GET | /api/v1/tours/equipment-catalog | Admin equipment list and default individual prices |
+| POST/PUT/DELETE | /api/v1/tours/equipment-catalog[/\{equipmentId\}] | Admin equipment catalog changes |
+| POST/DELETE | /api/v1/tours/equipment-catalog/\{equipmentId\}/image | Upload or remove the equipment image |
+| GET | /api/v1/tours/rental-packages | Admin reusable rental package templates |
+| POST/PUT/DELETE | /api/v1/tours/rental-packages[/\{packageId\}] | Admin rental package changes |
+| POST/DELETE | /api/v1/tours/rental-packages/\{packageId\}/image | Upload or remove the rental package image |
+| PUT | /api/v1/tours/{tourId}/equipment | Assign one package and/or extra individual items to a tour |
 
 The existing tour list now accepts optional `query` (case-insensitive literal title
 substring), `difficulty`, `durationDays` (positive), and `status` filters. Customers
 send `status=PUBLISHED`. Filters apply before pagination; omitted filters retain the
-management list behavior. There is no separate catalog endpoint or new role logic.
+management list behavior. The equipment catalog is scoped to this tour feature and
+uses the feature's existing ADMIN security rule.
 Schedule lists accept `upcomingOnly=true` to return future SCHEDULED departures in
 start-time/id order. Omitting it preserves the original list behavior.
 
-The two equipment reads use the tables/columns already added by migration 007.
+The public tour equipment read uses the tour-specific tables added by migration 007.
+The admin catalog uses the reusable package tables added by migration 009.
+Assigning a package copies its fields and item rows into the existing tour-specific
+tables, preserving current customer responses and tour item IDs. Editing a reusable
+template does not update assigned tours until their equipment configuration is saved again.
 An unconfigured package returns `{ "equipmentPackage": null, "items": [] }`.
-Package rental price is per participant per tour; individual price is per item per
-tour. NULL price means not configured/not rentable; zero is a valid configured
+Package rental price is per equipment package for the whole tour; multiply by the
+number of packages rented, not the traveler count. Individual price is per item for
+the whole tour; multiply by the number of items rented. NULL price means not configured/not rentable; zero is a valid configured
 price. The old schedule equipment fee is not added on top of the structured
 package price. These APIs provide configuration, not inventory or reservation.
-They keep the existing authenticated access behavior and 404 for a missing tour.
+Public reads are available to visitors; catalog writes and reads require ADMIN.
+Tour assignment requires ADMIN and returns 404 for a missing tour.
 
 The frontend integration contract is documented in the sibling frontend project:
 `docs/TOUR_API_CONTRACT.md`. Customer preparation stops at review, with no booking
@@ -130,25 +144,27 @@ table already supports these fields, so no database change is needed for this AP
 
 ### Tour images
 
-Cloudinary stores image files. Database rows store `url` and the private
-`cloudinary_public_id`; the latter is never returned to clients. Tour details
+The shared `features.storage.ImageStorage` interface stores image files through
+the configured provider. Tour rows store `url` and an opaque `storage_key`; the
+key is never returned to clients. Tour details
 already return `media`, ordered by `displayOrder` then id, and tour summaries
 include `coverImageUrl`. Setup and Postman examples: [Tour images](../../../../../../../../docs/TOUR_IMAGES.md).
 
 ## Boundaries
 
 - Missing resources and schedules requested through another Tour return 404.
-- Tour deletion requires DRAFT and no schedules; otherwise 409. Uploaded Cloudinary
-  images must be deleted through the image API first (`TOUR_HAS_MEDIA`), so the
-  database cascade cannot leave their files on Cloudinary. No schedule cascade.
+- Tour deletion requires DRAFT and no schedules; otherwise 409. Uploaded images
+  must be deleted through the image API first (`TOUR_HAS_MEDIA`), so the database
+  cascade cannot leave orphaned files in storage. No schedule cascade.
 - Schedule update/delete requires SCHEDULED and zero held/confirmed seats; otherwise 409.
 - Database references (e.g. bookings, carts, guide assignments) block deletion with 409.
 - Row locks serialize tour update/delete/create-schedule and schedule update/delete.
 - Schedule cancellation/refunds, attendance, equipment reservation and role checks
   are separate integration work.
-- Existing SecurityConfig requires a valid bearer token for all these routes. Role
-  authorization is deferred by agreement: currently any authenticated account can
-  call this initial CRUD. Add permission checks before making it available to customers.
+- Public tour reads use the feature's own `TourSecurityConfig`; list/detail and child
+  reads are limited to PUBLISHED tours. Public schedule reads include only future,
+  SCHEDULED departures. Tour writes require the `ADMIN` role; role checks are
+  defined by the feature's `TourSecurityConfig`.
 
 The MVC/service tests use mocked repositories and do not exercise the security
 filter chain, database foreign keys or transaction locks.
@@ -184,9 +200,8 @@ their details are logged on the backend for investigation. Other database errors
 return 503 `TOUR_UNAVAILABLE`. SQL and database record details are never returned
 in API errors. Database constraints and endpoints are unchanged by this refactor.
 
-The shared `OpenApiContractIntegrationTests` inventory includes the tour,
-schedule, activity and image operations. The full test suite
-requires a running Docker daemon for its PostgreSQL/Redis Testcontainers.
+The full test suite requires a running Docker daemon for its PostgreSQL/Redis
+Testcontainers.
 
 ```powershell
 .\mvnw.cmd '-Dtest=TourCrudTests' test

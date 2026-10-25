@@ -25,7 +25,12 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.config.SpringDataJackson3Configuration;
+import org.springframework.http.converter.json.JacksonJsonHttpMessageConverter;
+import tools.jackson.databind.json.JsonMapper;
 import org.springframework.http.MediaType;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -64,8 +69,11 @@ class TourCrudTests {
         media = mock(TourMediaRepository.class);
         schedules = mock(TourScheduleRepository.class);
         var service = new TourServiceImpl(tours, media, schedules, Mappers.getMapper(TourMapper.class));
+        var jsonConverter = new JacksonJsonHttpMessageConverter(JsonMapper.builder()
+                .addModule(new SpringDataJackson3Configuration.PageModule(null)).build());
         mvc = MockMvcBuilders.standaloneSetup(new TourController(service), new TourScheduleController(service))
-                .setControllerAdvice(new TourGlobalExceptionHandler(), new GlobalExceptionHandler()).build();
+                .setControllerAdvice(new TourGlobalExceptionHandler(), new GlobalExceptionHandler())
+                .setMessageConverters(jsonConverter).build();
         when(tours.saveAndFlush(any(Tour.class))).thenAnswer(invocation -> {
             Tour tour = invocation.getArgument(0);
             ReflectionTestUtils.setField(tour, "id", 1L);
@@ -81,7 +89,7 @@ class TourCrudTests {
     @Test
     void uploadedImagesMustBeRemovedBeforeDeletingTour() throws Exception {
         when(tours.findLockedById(1)).thenReturn(Optional.of(new Tour()));
-        when(media.existsByTourIdAndCloudinaryPublicIdIsNotNull(1)).thenReturn(true);
+        when(media.existsByTourIdAndStorageKeyIsNotNull(1)).thenReturn(true);
         mvc.perform(delete(TOURS + "/1"))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("TOUR_HAS_MEDIA"));
         verify(tours, never()).delete(any(Tour.class));
@@ -152,11 +160,11 @@ class TourCrudTests {
         when(tours.findAll(any(Pageable.class))).thenReturn(new PageImpl<>(List.of(tour)));
         when(tours.findById(1L)).thenReturn(Optional.of(tour));
 
-        mvc.perform(get(TOURS))
+        mvc.perform(get(TOURS).principal(admin()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].title").value("Ta Nang"))
                 .andExpect(jsonPath("$.content[0].description").doesNotExist());
-        mvc.perform(get(TOURS + "/1"))
+        mvc.perform(get(TOURS + "/1").principal(admin()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.description").value("Full tour description"));
     }
@@ -187,11 +195,11 @@ class TourCrudTests {
                 .thenReturn(new PageImpl<>(List.of(schedule)));
         when(schedules.findByIdAndTourId(5L, 1L)).thenReturn(Optional.of(schedule));
 
-        mvc.perform(get(SCHEDULES))
+        mvc.perform(get(SCHEDULES).principal(admin()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].meetingPoint").doesNotExist())
                 .andExpect(jsonPath("$.content[0].lockVersion").doesNotExist());
-        mvc.perform(get(SCHEDULES + "/5"))
+        mvc.perform(get(SCHEDULES + "/5").principal(admin()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.meetingPoint").value("Da Lat"))
                 .andExpect(jsonPath("$.lockVersion").value(7));
@@ -382,5 +390,10 @@ class TourCrudTests {
         mvc.perform(put(SCHEDULES + "/5").contentType(MediaType.APPLICATION_JSON).content(SCHEDULE))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("SCHEDULE_NOT_EDITABLE"));
         mvc.perform(delete(SCHEDULES + "/5")).andExpect(status().isConflict());
+    }
+
+    private static UsernamePasswordAuthenticationToken admin() {
+        return UsernamePasswordAuthenticationToken.authenticated("admin", "n/a",
+                List.of(new SimpleGrantedAuthority("ROLE_ADMIN")));
     }
 }

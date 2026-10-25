@@ -8,4 +8,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface TourEquipmentItemRepository extends JpaRepository<TourEquipmentItem, Long> {
     @EntityGraph(attributePaths = "equipment")
     List<TourEquipmentItem> findAllByPackageIdOrderByIdAsc(long packageId);
+    void deleteAllByPackageId(long packageId);
+    boolean existsByEquipmentId(long equipmentId);
 }

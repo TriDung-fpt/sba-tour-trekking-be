@@ -7,6 +7,7 @@ import java.util.List;
 
 public interface TourActivityService {
     List<ActivityResponse> list(long tourId);
+    List<ActivityResponse> listPublic(long tourId);
     ActivityResponse create(long tourId, CreateActivityRequest request);
     ActivityResponse update(long tourId, long activityId, UpdateActivityRequest request);
     void delete(long tourId, long activityId);

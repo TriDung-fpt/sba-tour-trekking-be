@@ -4,8 +4,10 @@ import com.trekking.app.core.common.entity.TimestampedEntity;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 @Getter
+@Setter
 @NoArgsConstructor
 @Entity
 @Table(name = "tour_equipment_items", schema = "trekking")

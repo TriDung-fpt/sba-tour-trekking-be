@@ -6,4 +6,5 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface TourEquipmentPackageRepository extends JpaRepository<TourEquipmentPackage, Long> {
     Optional<TourEquipmentPackage> findByTourId(long tourId);
+    boolean existsByPackageTemplateId(long packageTemplateId);
 }

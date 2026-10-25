@@ -15,7 +15,7 @@ class TourGlobalExceptionHandlerTests {
             "tour_activities_tour_id_day_number_display_order_key, ACTIVITY_ORDER_CONFLICT, displayOrder",
             "tour_activities_location_id_fkey, INVALID_LOCATION, locationId",
             "uq_tour_cover, TOUR_COVER_CONFLICT, mediaId",
-            "uq_tour_media_cloudinary_public_id, TOUR_IMAGE_CONFLICT, file",
+            "uq_tour_media_storage_key, TOUR_IMAGE_CONFLICT, file",
             "tours_cancellation_policy_version_id_fkey, INVALID_CANCELLATION_POLICY, cancellationPolicyVersionId",
             "tours_reviewed_by_fkey, INVALID_TOUR_REVIEWER, reviewedBy"
     })
