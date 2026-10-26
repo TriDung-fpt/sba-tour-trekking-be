@@ -41,6 +41,8 @@ public abstract class AuthTestInfrastructure {
                     "/docker-entrypoint-initdb.d/zzzzzzzzzzzz_add_equipment_catalog_images.sql")
             .withCopyFileToContainer(MountableFile.forHostPath(Path.of("schema/migrations/012_define_rental_price_units.sql")),
                     "/docker-entrypoint-initdb.d/zzzzzzzzzzzzz_define_rental_price_units.sql")
+            .withCopyFileToContainer(MountableFile.forHostPath(Path.of("schema/migrations/013_system_settings.sql")),
+                    "/docker-entrypoint-initdb.d/zzzzzzzzzzzzzz_system_settings.sql")
             .waitingFor(Wait.forLogMessage(".*database system is ready to accept connections.*\\n", 2))
             .withStartupTimeout(Duration.ofMinutes(2));
     static final GenericContainer<?> REDIS = new GenericContainer<>(DockerImageName.parse("redis:8.2-alpine"))
