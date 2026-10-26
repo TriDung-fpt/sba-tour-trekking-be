@@ -17,6 +17,13 @@ public final class AccountAdministrationRequests {
         public Roles { reason = normalize(reason); }
     }
 
+    public record Update(@NotBlank @Size(max = 200) String fullName, @Size(max = 30) String phone) {
+        public Update {
+            fullName = fullName == null ? null : fullName.strip();
+            phone = phone == null || phone.isBlank() ? null : phone.strip();
+        }
+    }
+
     private static String normalize(String reason) {
         return reason == null ? null : reason.strip();
     }

@@ -2,6 +2,7 @@ package com.trekking.app.features.account.service.impl;
 
 import com.trekking.app.features.account.service.AccountAdministrationService;
 import com.trekking.app.features.account.dto.response.AdminAccountResponse;
+import com.trekking.app.features.account.dto.response.AuditLogResponse;
 
 import com.trekking.app.core.exception.AuthException;
 import com.trekking.app.core.security.authorization.AuthorizationService;
@@ -13,6 +14,7 @@ import com.trekking.app.features.account.enums.AccountStatus;
 import com.trekking.app.features.account.enums.RoleType;
 import com.trekking.app.features.account.repository.AccountRoleRepository;
 import com.trekking.app.features.account.repository.AppAccountRepository;
+import com.trekking.app.features.account.repository.AuditLogRepository;
 import com.trekking.app.features.account.service.audit.AccountAuditState;
 import com.trekking.app.features.account.service.audit.AuditWriter;
 import jakarta.persistence.EntityManager;
@@ -20,7 +22,13 @@ import jakarta.persistence.LockModeType;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,14 +41,17 @@ public class AccountAdministrationServiceImpl implements AccountAdministrationSe
     private final AccountRoleRepository roles;
     private final AuthorizationService authorization;
     private final AuditWriter audits;
+    private final AuditLogRepository auditLogs;
     private final EntityManager entities;
 
     public AccountAdministrationServiceImpl(AppAccountRepository accounts, AccountRoleRepository roles,
-                                        AuthorizationService authorization, AuditWriter audits, EntityManager entities) {
+                                        AuthorizationService authorization, AuditWriter audits,
+                                        AuditLogRepository auditLogs, EntityManager entities) {
         this.accounts = accounts;
         this.roles = roles;
         this.authorization = authorization;
         this.audits = audits;
+        this.auditLogs = auditLogs;
         this.entities = entities;
     }
 
@@ -49,6 +60,46 @@ public class AccountAdministrationServiceImpl implements AccountAdministrationSe
         authorization.require(Permission.ACCOUNT_READ);
         var account = accounts.findById(id).orElseThrow(AccountAdministrationServiceImpl::notFound);
         return response(account, roleNames(roles.findAllByAccountId(id)));
+    }
+
+    @Transactional(readOnly = true)
+    public Page<AdminAccountResponse> list(String query, String role, String status, int page, int size) {
+        authorization.require(Permission.ACCOUNT_READ);
+        RoleType roleFilter = parseRole(role);
+        AccountStatus statusFilter = parseStatus(status);
+        Specification<AppAccount> filter = (root, q, cb) -> cb.conjunction();
+        String term = query == null || query.isBlank() ? null
+                : query.trim().toLowerCase(Locale.ROOT).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+        if (term != null) {
+            filter = filter.and((root, q, cb) -> cb.or(
+                    cb.like(cb.lower(root.get("email")), "%" + term + "%", '\\'),
+                    cb.like(cb.lower(root.get("fullName")), "%" + term + "%", '\\'),
+                    cb.like(cb.lower(cb.coalesce(root.get("phone"), "")), "%" + term + "%", '\\')));
+        }
+        if (statusFilter != null) filter = filter.and((root, q, cb) -> cb.equal(root.get("status"), statusFilter));
+        if (roleFilter != null) {
+            filter = filter.and((root, q, cb) -> {
+                var sub = q.subquery(Long.class);
+                var assigned = sub.from(AccountRole.class);
+                sub.select(assigned.<Long>get("accountId")).where(cb.equal(assigned.get("role"), roleFilter));
+                return cb.in(root.get("id")).value(sub);
+            });
+        }
+        return accounts.findAll(filter, pageRequest(page, size))
+                .map(account -> response(account, roleNames(roles.findAllByAccountId(account.getId()))));
+    }
+
+    @Transactional
+    public AdminAccountResponse update(Long id, AccountAdministrationRequests.Update request) {
+        requireMutation(Permission.ACCOUNT_UPDATE);
+        AppAccount account = mutableAccount(id);
+        var names = roleNames(roles.findAllByAccountId(id));
+        var before = Map.of("fullName", account.getFullName(), "phone", nullToEmpty(account.getPhone()));
+        account.setFullName(request.fullName());
+        account.setPhone(request.phone());
+        audits.accountProfileChanged(authorization.currentAccountId(), id, "Profile updated", before,
+                Map.of("fullName", account.getFullName(), "phone", nullToEmpty(account.getPhone())));
+        return response(account, names);
     }
 
     @Transactional
@@ -113,6 +164,20 @@ public class AccountAdministrationServiceImpl implements AccountAdministrationSe
         return response(account, names);
     }
 
+    @Transactional(readOnly = true)
+    public Page<AuditLogResponse> listAuditLogs(String entityType, Long entityId, String action, Long actorId,
+                                                int page, int size) {
+        authorization.require(Permission.ACCOUNT_READ);
+        if (page < 0 || size < 1 || size > 100) {
+            throw new AuthException(HttpStatus.BAD_REQUEST, "INVALID_PAGINATION",
+                    "page must be >= 0 and size must be between 1 and 100");
+        }
+        return auditLogs.search(entityType, entityId, action, actorId, PageRequest.of(page, size))
+                .map(audit -> new AuditLogResponse(audit.getId(), audit.getActorId(), audit.getAction(),
+                        audit.getEntityType(), audit.getEntityId(), audit.getReason(), audit.getDetails(),
+                        audit.getOccurredAt()));
+    }
+
     private AppAccount mutableAccount(Long id) {
         if (id != null && authorization.currentAccountId() == id.longValue()) {
             throw new AuthException(HttpStatus.FORBIDDEN, "SELF_ACCOUNT_MUTATION_FORBIDDEN",
@@ -145,6 +210,32 @@ public class AccountAdministrationServiceImpl implements AccountAdministrationSe
                     "A reason of at most 2000 characters is required");
         }
         return value;
+    }
+
+    private static PageRequest pageRequest(int page, int size) {
+        if (page < 0 || size < 1 || size > 100) {
+            throw new AuthException(HttpStatus.BAD_REQUEST, "INVALID_PAGINATION",
+                    "page must be >= 0 and size must be between 1 and 100");
+        }
+        return PageRequest.of(page, size, Sort.by("id"));
+    }
+
+    private static String nullToEmpty(String value) { return value == null ? "" : value; }
+
+    private static RoleType parseRole(String raw) {
+        if (raw == null || raw.isBlank()) return null;
+        for (RoleType role : RoleType.values()) {
+            if (role.name().equalsIgnoreCase(raw) || role.getValue().equalsIgnoreCase(raw)) return role;
+        }
+        throw new AuthException(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", "Invalid role filter");
+    }
+
+    private static AccountStatus parseStatus(String raw) {
+        if (raw == null || raw.isBlank()) return null;
+        for (AccountStatus status : AccountStatus.values()) {
+            if (status.name().equalsIgnoreCase(raw) || status.getValue().equalsIgnoreCase(raw)) return status;
+        }
+        throw new AuthException(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", "Invalid status filter");
     }
 
     private static Set<RoleType> parseRoles(List<String> values) {

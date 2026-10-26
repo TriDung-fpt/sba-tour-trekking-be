@@ -24,10 +24,13 @@ import org.springframework.transaction.annotation.Transactional;
 public class AuthorizationServiceImpl implements AuthorizationService {
     private static final Set<Permission> ADMIN_PERMISSIONS = Set.of(
             Permission.ACCOUNT_READ, Permission.ACCOUNT_BLOCK, Permission.ACCOUNT_ROLES_WRITE,
+            Permission.ACCOUNT_UPDATE,
             Permission.POLICY_MANAGE, Permission.TOUR_READ, Permission.TOUR_MANAGE,
+            Permission.REVIEW_MODERATE,
             Permission.TOUR_COMPOSE, Permission.TOUR_PUBLISH, Permission.SCHEDULE_MANAGE,
             Permission.BOOKING_MANAGE, Permission.GUIDE_MANAGE, Permission.FINANCE_READ,
-            Permission.PAYMENT_RECORD, Permission.REFUND_APPROVE, Permission.REFUND_RECORD);
+            Permission.PAYMENT_RECORD, Permission.REFUND_APPROVE, Permission.REFUND_RECORD,
+            Permission.DASHBOARD_READ, Permission.REPORT_EXPORT);
 
     private final AppAccountRepository accounts;
     private final AccountRoleRepository roles;

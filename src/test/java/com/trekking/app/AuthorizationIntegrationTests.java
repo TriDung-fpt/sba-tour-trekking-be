@@ -41,7 +41,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class AuthorizationIntegrationTests extends AccountAuthorizationTestSupport {
     private static final String AUTHORIZATION = "/api/v1/accounts/me/authorization";
     private static final List<String> ADMIN_PERMISSIONS = List.of(
-            "ACCOUNT_READ", "ACCOUNT_BLOCK", "ACCOUNT_ROLES_WRITE", "POLICY_MANAGE",
+            "ACCOUNT_READ", "ACCOUNT_BLOCK", "ACCOUNT_ROLES_WRITE", "ACCOUNT_UPDATE", "POLICY_MANAGE",
+            "REVIEW_MODERATE", "DASHBOARD_READ", "REPORT_EXPORT",
             "FINANCE_READ", "PAYMENT_RECORD", "REFUND_APPROVE", "REFUND_RECORD",
             "TOUR_READ", "TOUR_MANAGE", "TOUR_COMPOSE", "TOUR_PUBLISH", "SCHEDULE_MANAGE",
             "BOOKING_MANAGE", "GUIDE_MANAGE");

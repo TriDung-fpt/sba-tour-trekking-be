@@ -168,6 +168,46 @@ class AccountAdministrationIntegrationTests extends AccountAuthorizationTestSupp
         assertThat(auditCount(admin)).isZero();
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"customer", "guide"})
+    void nonAdminRolesAreDeniedListUpdateAndAuditLogEndpoints(String role) throws Exception {
+        long caller = account("caller@example.invalid", role);
+        long target = account("target@example.invalid", "customer");
+        var token = session(caller);
+        authGet("/api/v1/admin/accounts", token).andExpect(status().isForbidden());
+        authPut(ADMIN_ACCOUNTS + target, Map.of("fullName", "Renamed"), token).andExpect(status().isForbidden());
+        authGet("/api/v1/admin/audit-logs", token).andExpect(status().isForbidden());
+        assertThat(jdbc.queryForObject("select full_name from trekking.app_accounts where id = ?", String.class, target))
+                .isEqualTo("Test target@example.invalid");
+        assertThat(auditCount(target)).isZero();
+    }
+
+    @Test
+    void adminListsFiltersUpdatesProfileWithAuditAndCannotUpdateSelf() throws Exception {
+        long admin = account("admin@example.invalid", "admin");
+        long target = account("target@example.invalid", "customer");
+        var token = session(admin);
+        authGet("/api/v1/admin/accounts?role=CUSTOMER&query=target", token).andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].id").value(target))
+                .andExpect(jsonPath("$.content[0].roles[0]").value("customer"));
+        authGet("/api/v1/admin/accounts?role=GUIDE", token).andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").isEmpty());
+        authPut(ADMIN_ACCOUNTS + target, Map.of("fullName", "  Updated Name  ", "phone", "0900000001"), token)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.fullName").value("Updated Name"))
+                .andExpect(jsonPath("$.phone").value("0900000001"));
+        authPut(ADMIN_ACCOUNTS + admin, Map.of("fullName", "Self rename"), token)
+                .andExpect(status().isForbidden());
+        assertThat(auditCount(target)).isEqualTo(1);
+        authGet("/api/v1/admin/audit-logs?entityType=account&entityId=" + target, token)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].action").value("ACCOUNT_UPDATED"))
+                .andExpect(jsonPath("$.content[0].actorId").value(admin))
+                .andExpect(jsonPath("$.content[0].reason").value("Profile updated"));
+        authGet("/api/v1/admin/audit-logs?action=ACCOUNT_UPDATED", token).andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(1));
+    }
+
     @Test
     void administratorCanBlockUnblockAndDemoteAnotherAdministrator() throws Exception {
         long admin = account("admin@example.invalid", "admin");

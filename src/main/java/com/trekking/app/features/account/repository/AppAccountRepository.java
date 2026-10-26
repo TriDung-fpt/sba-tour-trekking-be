@@ -4,11 +4,12 @@ import com.trekking.app.features.account.entity.AppAccount;
 import jakarta.persistence.LockModeType;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-public interface AppAccountRepository extends JpaRepository<AppAccount, Long> {
+public interface AppAccountRepository extends JpaRepository<AppAccount, Long>, JpaSpecificationExecutor<AppAccount> {
     // Serialize administrative revocations before locking individual actors/targets.
     @Query(value = "select 1 from pg_advisory_xact_lock(72630401)", nativeQuery = true)
     Integer serializeAdministration();
