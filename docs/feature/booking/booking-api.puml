@@ -1,0 +1,154 @@
+@startuml booking-api
+title Booking API flow (features/booking)
+
+skinparam sequenceMessageAlign left
+skinparam responseMessageBelowArrow true
+autonumber "<b>[0]"
+
+actor "Customer" as C
+actor "Admin\n(BOOKING_MANAGE)" as A
+participant "BookingController\nScheduleAvailabilityController" as Ctl
+participant "BookingServiceImpl" as S
+participant "BookingHoldService" as H
+participant "AuthorizationService" as Auth
+database "Postgres" as DB
+
+== POST /api/v1/bookings (create) ==
+C -> Ctl : POST /api/v1/bookings\n{idempotencyKey, scheduleId, equipmentChoice, passengers[]}
+Ctl -> Ctl : @Valid request body
+Ctl -> S : create(request)
+S -> Auth : authorization()
+alt not CUSTOMER
+    S --> C : 403 FORBIDDEN
+end
+alt more than one bookingCustomer
+    S --> C : 400 MULTIPLE_BOOKING_CUSTOMERS
+end
+S -> DB : pg_advisory_xact_lock(idempotencyKey)
+S -> DB : findByIdempotencyKey
+alt key used by same customer and same schedule
+    S --> Ctl : created = false
+    Ctl --> C : 200 existing booking
+else key used by another customer or schedule
+    S --> C : 409 IDEMPOTENCY_KEY_REUSED
+end
+S -> H : expireDueHolds(scheduleId)
+activate H
+note right of H : REQUIRES_NEW per booking\nlock Booking -> Schedule\nPENDING_PAYMENT -> EXPIRED\nheld_seats -= participantCount
+H -> DB : expire due holds
+H --> S : done
+deactivate H
+S -> DB : SELECT tour_schedules FOR UPDATE
+alt schedule missing
+    S --> C : 404 SCHEDULE_NOT_FOUND
+else tour not published / not SCHEDULED / departed / no effective cancellation policy
+    S --> C : 409 BOOKING_NOT_AVAILABLE
+else capacity - held - confirmed < passengers
+    S --> C : 409 INSUFFICIENT_SEATS
+else equipmentChoice = TOUR_PACKAGE
+    S --> C : 503 EQUIPMENT_SERVICE_UNAVAILABLE
+end
+S -> DB : INSERT bookings\n(price + policy snapshot, hold_expires_at = now + 15 min)
+S -> DB : INSERT participants
+S -> DB : UPDATE tour_schedules held_seats += passengers
+S --> Ctl : created = true
+Ctl --> C : 201 BookingDetailResponse
+
+== GET /api/v1/bookings/my ==
+C -> Ctl : GET /api/v1/bookings/my?status=&page=&size=
+Ctl -> S : listMine(status, page, size)
+S -> Auth : authorization()
+alt not CUSTOMER
+    S --> C : 403 FORBIDDEN
+end
+S -> DB : bookings where customer_id = me (order by created_at desc)
+S -> DB : moneyTotals(bookingIds)
+Ctl --> C : 200 Page<BookingSummaryResponse>
+
+== GET /api/v1/bookings (operator search) ==
+A -> Ctl : GET /api/v1/bookings?status=&scheduleId=&tourId=\n&customerId=&createdFrom=&createdTo=&page=&size=
+Ctl -> S : search(criteria, page, size)
+S -> Auth : require(BOOKING_MANAGE)
+alt not ADMIN
+    S --> A : 403 FORBIDDEN
+end
+S -> DB : bookings matching filters
+S -> DB : moneyTotals(bookingIds)
+Ctl --> A : 200 Page<BookingSummaryResponse>
+
+== GET /api/v1/bookings/{bookingId} ==
+C -> Ctl : GET /api/v1/bookings/{bookingId}
+Ctl -> S : get(bookingId)
+S -> Auth : has BOOKING_MANAGE?
+alt admin
+    S -> DB : find by id
+else customer
+    S -> DB : find by id and customer_id = me
+end
+alt not found or another customer's booking
+    S --> C : 404 BOOKING_NOT_FOUND
+end
+S -> DB : participants + paid/refunded totals
+Ctl --> C : 200 BookingDetailResponse
+
+== PUT /api/v1/bookings/{bookingId}/passengers ==
+C -> Ctl : PUT .../passengers {passengers[]}
+Ctl -> S : replacePassengers(bookingId, request)
+S -> DB : SELECT booking FOR UPDATE (owned)
+alt not found
+    S --> C : 404 BOOKING_NOT_FOUND
+else not PENDING_PAYMENT or price locked
+    S --> C : 409 BOOKING_NOT_EDITABLE
+else hold expired
+    S --> C : 409 BOOKING_HOLD_EXPIRED
+end
+S -> DB : SELECT tour_schedules FOR UPDATE
+alt delta > 0 and not enough seats
+    S --> C : 409 INSUFFICIENT_SEATS
+end
+S -> DB : held_seats += delta
+S -> DB : DELETE participants, INSERT new list
+S -> DB : UPDATE bookings participant_count
+Ctl --> C : 200 BookingDetailResponse
+
+== PATCH /api/v1/bookings/{bookingId}/passengers/{participantId} ==
+C -> Ctl : PATCH .../passengers/{participantId}\n{fullName, phone, email}
+Ctl -> S : updatePassenger(bookingId, participantId, request)
+S -> DB : SELECT booking FOR UPDATE (owned)
+alt not PENDING_PAYMENT/CONFIRMED or already departed
+    S --> C : 409 BOOKING_NOT_EDITABLE
+else participant not in booking
+    S --> C : 404 BOOKING_NOT_FOUND
+end
+S -> DB : UPDATE participants (name/contact only)
+Ctl --> C : 200 BookingDetailResponse
+
+== POST /api/v1/bookings/{bookingId}/cancel ==
+C -> Ctl : POST .../cancel {reason}
+Ctl -> S : cancel(bookingId, request)
+S -> DB : SELECT booking FOR UPDATE (owned)
+alt already CANCELLED
+    Ctl --> C : 200 previous cancellation result
+else EXPIRED / COMPLETED / NO_SHOW
+    S --> C : 409 INVALID_BOOKING_TRANSITION
+end
+S -> DB : SELECT tour_schedules FOR UPDATE
+alt PENDING_PAYMENT
+    S -> DB : held_seats -= participantCount
+else CONFIRMED
+    S -> DB : confirmed_seats -= participantCount
+end
+S -> DB : status = CANCELLED, cancelled_at, reason, cancelled_by
+S -> DB : paid/refunded totals
+Ctl --> C : 200 BookingCancellationResponse\n(refundRequired = paid > refunded)
+
+== GET /api/v1/schedules/{scheduleId}/availability ==
+C -> Ctl : GET /api/v1/schedules/{scheduleId}/availability
+Ctl -> S : availability(scheduleId)
+S -> DB : find schedule + tour
+alt schedule missing, or tour unpublished and caller is not admin
+    S --> C : 404 SCHEDULE_NOT_FOUND
+end
+Ctl --> C : 200 {capacity, heldSeats, confirmedSeats,\navailableSeats, bookable}
+
+@enduml
