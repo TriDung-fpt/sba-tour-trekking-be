@@ -1,6 +1,6 @@
 # Equipment package, stock and handover (EQ-01–EQ-08)
 
-The demo branch already owns migrations 007–014 for equipment catalog, rental templates, pricing, and Booking snapshots. This feature adds migration 015 for the PayOS checkout URL and migration 016 for inventory, reservations, and handover history. Apply 015 and 016 after 014. The package remains one-per-tour, so every schedule under that tour uses the same package. Customers rent equipment only with a tour; standalone rental is not supported.
+The booking branch owns migrations 007–012 for equipment catalog, rental templates, and pricing. This feature adds migration 013 for the PayOS checkout URL and migration 014 for inventory, reservations, and handover history. Apply them after 012. The package remains one-per-tour, so every schedule under that tour uses the same package. Customers rent equipment only with a tour; standalone rental is not supported.
 
 ## Admin catalog and package API
 

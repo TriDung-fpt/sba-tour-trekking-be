@@ -17,15 +17,13 @@ Repository dùng SQL migration theo thứ tự; chưa dùng Flyway. Không sửa
 | 010 | [010](010_abstract_tour_media_storage_key.sql) | Đổi cột ID Cloudinary thành khóa storage dùng chung. |
 | 011 | [011](011_add_equipment_catalog_images.sql) | Thêm URL ảnh và khóa storage cho dụng cụ và mẫu gói thuê. |
 | 012 | [012](012_define_rental_price_units.sql) | Ghi rõ giá gói tính theo mỗi gói, giá món lẻ theo mỗi món; không nhân theo số khách. |
-| 013 | [013](013_booking_group_rental_total.sql) | Tính phí thuê là tổng của cả nhóm khi tạo booking. |
-| 014 | [014](014_protect_booking_group_rental_snapshot.sql) | Bảo vệ phí thuê nhóm trong snapshot booking đã khóa. |
-| 015 | [015](015_add_payment_checkout_url.sql) | Lưu URL checkout PayOS để request lặp dùng lại payment attempt đang hiệu lực. |
-| 016 | [016](016_equipment_inventory_operations.sql) | Thêm tồn/bảo trì, giữ dụng cụ và lịch sử cấp phát/nhận lại theo EQ-01–EQ-08. |
+| 013 | [013](013_add_payment_checkout_url.sql) | Lưu URL checkout PayOS để request lặp dùng lại payment attempt đang hiệu lực. |
+| 014 | [014](014_equipment_inventory_operations.sql) | Thêm tồn/bảo trì, giữ dụng cụ và lịch sử cấp phát/nhận lại theo EQ-01–EQ-08. |
 
 Database mới chạy bootstrap → 001 → 002 → 003 → 004 → 005 → 006 → 007 → 008 → 009 → 010 → 011 → 012 → 013 → 014 qua Compose/Testcontainers.
-Database đã có 012 áp dụng 013 rồi 014; đã có 013 chỉ áp dụng 014. Các phiên bản cũ hơn chạy tiếp các file còn thiếu theo thứ tự. Volume Docker cũ không chạy lại init scripts. Dừng writer, kiểm tra backup và phiên bản trước khi chạy từng SQL với ON_ERROR_STOP; không replay script đã áp dụng hoặc reset volume.
+Database đã có 012 áp dụng 013 rồi 014. Các phiên bản cũ hơn chạy tiếp các file còn thiếu theo thứ tự. Volume Docker cũ không chạy lại init scripts. Dừng writer, kiểm tra backup và phiên bản trước khi chạy từng SQL với ON_ERROR_STOP; không replay script đã áp dụng hoặc reset volume.
 
-Sau khi ghép feature/payment, chạy tiếp 015 (PayOS checkout URL) và 016 (tồn/bảo trì, reservation, bàn giao). Migration catalog 013 cũ bên feature branch đã được bỏ vì migration 007–012 trên branch Booking/demo đã có catalog, gói, giá và checklist. Migration 016 chỉ mở rộng catalog hiện có; không chạy trước 007. Cần thêm 015/016 vào Compose/Testcontainers sau khi tích hợp branch để giữ thứ tự migration.
+Migration 014 mở rộng catalog thiết bị được tạo từ migration 007; không chạy trước 007. Khi tích hợp feature/payment vào nhánh có 001–012, thêm 013 và 014 vào Compose/Testcontainers theo đúng thứ tự.
 
 005 không tự nâng nhân sự cũ thành ADMIN. 006 sao chụp 18 bảng vào legacy_archive và ghi manifest số dòng trước khi bỏ cột/bảng company. Archive không có FK tới schema hiện hành, Java mapping hoặc quyền nghiệp vụ. DML và TRUNCATE vào archive bị chặn; quyền quản trị database/backup vẫn phải được kiểm soát ở môi trường triển khai.
 

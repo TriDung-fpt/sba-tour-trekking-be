@@ -35,6 +35,6 @@ The booking authorization boundary verifies ownership and eligibility and locks 
 
 The webhook stores a verified payment and marks it accepted only when amount, attempt state, and booking outstanding balance match. Late, cancelled-booking, or excess payments are stored as `pending_review` and require reconciliation. Booking status transitions after accepted payment remain owned by the Booking feature and must be connected through its agreed service contract.
 
-Apply migration `015_add_payment_checkout_url.sql` after migration 014. Fresh database setup runs the full migration chain after `schema.sql` bootstrap.
+Apply migration `013_add_payment_checkout_url.sql` after migration 012. Fresh database setup runs the full migration chain after `schema.sql` bootstrap.
 
 
