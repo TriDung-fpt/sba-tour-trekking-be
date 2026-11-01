@@ -157,6 +157,7 @@ public class EquipmentCatalogServiceImpl implements EquipmentCatalogService {
         applyPackage(template, request);
         template = packageTemplates.save(template);
         packageItems.deleteAllByPackageTemplateId(packageId);
+        packageItems.flush();
         savePackageItems(packageId, request.items());
         return toTemplateResponse(template);
     }
@@ -227,8 +228,6 @@ public class EquipmentCatalogServiceImpl implements EquipmentCatalogService {
 
     private void applyPackage(RentalPackageTemplate template, SaveRentalPackageRequest request) {
         template.setTitle(request.title().trim());
-        template.setSharedItems(trimToNull(request.sharedItems()));
-        template.setPersonalItemsToBring(trimToNull(request.personalItemsToBring()));
         template.setRentalPriceVnd(request.rentalPriceVnd());
     }
 
@@ -267,8 +266,8 @@ public class EquipmentCatalogServiceImpl implements EquipmentCatalogService {
                         item.getEquipment().getDescription(), item.getQuantityInPackage(),
                         item.getIndividualRentalPriceVnd()))
                 .toList();
-        return new RentalPackageTemplateResponse(template.getId(), template.getTitle(), template.getSharedItems(),
-                template.getPersonalItemsToBring(), template.getRentalPriceVnd(), template.getImageUrl(), rows);
+        return new RentalPackageTemplateResponse(template.getId(), template.getTitle(),
+                template.getRentalPriceVnd(), template.getImageUrl(), rows);
     }
 
     private StoredImage uploadImage(String folder, MultipartFile file) {

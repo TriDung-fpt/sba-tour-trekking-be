@@ -7,5 +7,5 @@ import java.util.List;
 public record TourDetailResponse(
         Long id, String title, String description, DifficultyLevel difficulty, Integer durationDays,
         String requiredExperience, String includedServices, String excludedServices,
-        String routeFileUrl, TourStatus status, List<TourMediaResponse> media) {
+        String routeFileUrl, TourStatus status, Long cancellationPolicyVersionId, List<TourMediaResponse> media) {
 }

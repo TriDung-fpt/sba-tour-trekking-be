@@ -15,5 +15,6 @@ public record UpdateTourRequest(
         String includedServices,
         String excludedServices,
         String routeFileUrl,
-        TourStatus status) {
+        TourStatus status,
+        @Positive Long cancellationPolicyVersionId) {
 }

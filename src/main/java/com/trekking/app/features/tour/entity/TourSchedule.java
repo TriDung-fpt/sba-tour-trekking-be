@@ -54,6 +54,10 @@ public class TourSchedule extends TimestampedEntity {
     @Column(name = "balance_due_at", nullable = false)
     private OffsetDateTime balanceDueAt;
 
+    @Column(name = "details_updated_at", nullable = false, insertable = false, updatable = false)
+    @Setter(AccessLevel.NONE)
+    private OffsetDateTime detailsUpdatedAt;
+
     @Column(name = "meeting_point", columnDefinition = "text")
     private String meetingPoint;
 

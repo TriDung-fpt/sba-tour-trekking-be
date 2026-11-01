@@ -31,14 +31,15 @@ on Tour is unnecessary: schedules are queried and paginated by tourId.
 | PUT | /api/v1/tours/{tourId}/media/order | Set image order |
 | DELETE | /api/v1/tours/{tourId}/media/{mediaId} | Delete image, 204 |
 | GET | /api/v1/tours/{tourId}/required-items | Required/personal items checklist |
-| GET | /api/v1/tours/{tourId}/equipment | Package contents and individual rental prices |
+| GET | /api/v1/tours/{tourId}/equipment | Attached rental package combos, standalone individual rental items, and configuration version |
 | GET | /api/v1/tours/equipment-catalog | Admin equipment list and default individual prices |
 | POST/PUT/DELETE | /api/v1/tours/equipment-catalog[/\{equipmentId\}] | Admin equipment catalog changes |
 | POST/DELETE | /api/v1/tours/equipment-catalog/\{equipmentId\}/image | Upload or remove the equipment image |
 | GET | /api/v1/tours/rental-packages | Admin reusable rental package templates |
+| GET | /api/v1/tours/{tourId}/schedules/latest | Admin: most recently edited schedule details, or 204 when none exists |
 | POST/PUT/DELETE | /api/v1/tours/rental-packages[/\{packageId\}] | Admin rental package changes |
 | POST/DELETE | /api/v1/tours/rental-packages/\{packageId\}/image | Upload or remove the rental package image |
-| PUT | /api/v1/tours/{tourId}/equipment | Assign one package and/or extra individual items to a tour |
+| PUT | /api/v1/tours/{tourId}/equipment | Assign multiple rental package combos and/or standalone individual items to a tour (with version check) |
 
 The existing tour list now accepts optional `query` (case-insensitive literal title
 substring), `difficulty`, `durationDays` (positive), and `status` filters. Customers
@@ -48,12 +49,16 @@ uses the feature's existing ADMIN security rule.
 Schedule lists accept `upcomingOnly=true` to return future SCHEDULED departures in
 start-time/id order. Omitting it preserves the original list behavior.
 
-The public tour equipment read uses the tour-specific tables added by migration 007.
+The public tour equipment read uses the tour-specific tables added by migration 007 and extended by migration 021.
 The admin catalog uses the reusable package tables added by migration 009.
-Assigning a package copies its fields and item rows into the existing tour-specific
-tables, preserving current customer responses and tour item IDs. Editing a reusable
-template does not update assigned tours until their equipment configuration is saved again.
-An unconfigured package returns `{ "equipmentPackage": null, "items": [] }`.
+Assigning combos and individual items copies package fields and item rows into the tour-specific
+tables (`tour_equipment_packages` and `tour_equipment_items`). If an existing package row is referenced
+by historical `equipment_reservations` and is removed or updated after a template change, it is archived
+(`active = false`) so historical reservation foreign keys and item snapshots are never broken or mutated.
+Editing a reusable template does not update assigned tours until their equipment configuration is saved again.
+An unconfigured tour returns `{ "version": 0, "needsReview": false, "packages": [], "individualItems": [], "items": [], "equipmentPackage": null }`.
+Notice that `items` equals `individualItems` (standalone individual rental items with `package_id IS NULL`), while combo contents are returned inside each element of `packages[].items`.
+When updating a tour whose `version > 0`, `PUT /api/v1/tours/{tourId}/equipment` requires the matching `version`; stale versions or requests omitting `version` when `version > 0` return `409 EQUIPMENT_CONFIG_CONFLICT`.
 Package rental price is per equipment package for the whole tour; multiply by the
 number of packages rented, not the traveler count. Individual price is per item for
 the whole tour; multiply by the number of items rented. NULL price means not configured/not rentable; zero is a valid configured
