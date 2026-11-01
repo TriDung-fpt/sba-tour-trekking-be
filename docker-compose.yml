@@ -59,13 +59,37 @@ services:
       - ./schema/migrations/010_abstract_tour_media_storage_key.sql:/docker-entrypoint-initdb.d/11_abstract_tour_media_storage_key.sql:ro
       - ./schema/migrations/011_add_equipment_catalog_images.sql:/docker-entrypoint-initdb.d/12_add_equipment_catalog_images.sql:ro
       - ./schema/migrations/012_define_rental_price_units.sql:/docker-entrypoint-initdb.d/13_define_rental_price_units.sql:ro
+      - ./schema/migrations/013_add_payment_checkout_url.sql:/docker-entrypoint-initdb.d/14_add_payment_checkout_url.sql:ro
+      - ./schema/migrations/014_equipment_inventory_operations.sql:/docker-entrypoint-initdb.d/15_equipment_inventory_operations.sql:ro
+      - ./schema/migrations/015_policy_revocations.sql:/docker-entrypoint-initdb.d/16_policy_revocations.sql:ro
+      - ./schema/migrations/016_tour_itinerary_days.sql:/docker-entrypoint-initdb.d/17_tour_itinerary_days.sql:ro
+      - ./schema/migrations/017_tour_terms.sql:/docker-entrypoint-initdb.d/18_tour_terms.sql:ro
+      - ./schema/migrations/018_policy_deleted.sql:/docker-entrypoint-initdb.d/19_policy_deleted.sql:ro
+      - ./schema/migrations/019_schedule_details_updated.sql:/docker-entrypoint-initdb.d/20_schedule_details_updated.sql:ro
+      - ./schema/migrations/020_tour_schedule_defaults.sql:/docker-entrypoint-initdb.d/21_tour_schedule_defaults.sql:ro
+      - ./schema/migrations/021_multiple_tour_equipment_packages_and_items.sql:/docker-entrypoint-initdb.d/22_multiple_tour_equipment_packages_and_items.sql:ro
+      - ./schema/migrations/022_booking_equipment_pricing.sql:/docker-entrypoint-initdb.d/23_booking_equipment_pricing.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 5s
       timeout: 3s
       retries: 10
+  pgadmin:
+    image: dpage/pgadmin4:9.8
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${PGADMIN_PORT:-5050}:80"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@example.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      postgres:
+        condition: service_healthy
 
 volumes:
   redis_data:
   postgres_data:
     driver: local
+  pgadmin_data:

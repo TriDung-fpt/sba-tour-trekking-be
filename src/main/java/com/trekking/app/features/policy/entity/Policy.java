@@ -8,6 +8,7 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import java.time.OffsetDateTime;
 
 @Getter
 @Setter
@@ -37,6 +38,9 @@ public class Policy extends TimestampedEntity {
 
     @Column(name = "active", nullable = false)
     private Boolean active = true;
+
+    @Column(name = "deleted_at")
+    private OffsetDateTime deletedAt;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "created_by", referencedColumnName = "id", insertable = false, updatable = false)

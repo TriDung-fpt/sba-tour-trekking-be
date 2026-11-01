@@ -48,13 +48,14 @@ public class TourActivityServiceImpl implements TourActivityService {
 
     @Override
     public ActivityResponse create(long tourId, CreateActivityRequest request) {
-        requireTour(tourId);
+        lockTour(tourId);
         var activity = mapper.toEntity(request, tourId);
         return mapper.toResponse(activities.saveAndFlush(activity));
     }
 
     @Override
     public ActivityResponse update(long tourId, long activityId, UpdateActivityRequest request) {
+        lockTour(tourId);
         var activity = requireActivity(tourId, activityId);
         mapper.update(request, activity);
         return mapper.toResponse(activities.saveAndFlush(activity));
@@ -62,7 +63,12 @@ public class TourActivityServiceImpl implements TourActivityService {
 
     @Override
     public void delete(long tourId, long activityId) {
+        lockTour(tourId);
         activities.delete(requireActivity(tourId, activityId));
+    }
+
+    private void lockTour(long tourId) {
+        tours.findLockedById(tourId).orElseThrow(() -> new TourException(HttpStatus.NOT_FOUND, "RESOURCE_NOT_FOUND", "Tour was not found"));
     }
 
     private void requireTour(long tourId) {

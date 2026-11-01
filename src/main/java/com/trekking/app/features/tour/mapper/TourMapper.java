@@ -25,6 +25,7 @@ public interface TourMapper {
     @Mapping(target = "reviewedBy", ignore = true)
     @Mapping(target = "reviewedAt", ignore = true)
     @Mapping(target = "reviewNote", ignore = true)
+    @Mapping(target = "equipmentConfigVersion", ignore = true)
     Tour toTour(CreateTourRequest request);
 
     @Mapping(target = "title", expression = "java(request.title().trim())")
@@ -33,6 +34,7 @@ public interface TourMapper {
     @Mapping(target = "reviewedBy", ignore = true)
     @Mapping(target = "reviewedAt", ignore = true)
     @Mapping(target = "reviewNote", ignore = true)
+    @Mapping(target = "equipmentConfigVersion", ignore = true)
     void updateTour(UpdateTourRequest request, @MappingTarget Tour tour);
 
     @Mapping(target = "tourId", ignore = true)

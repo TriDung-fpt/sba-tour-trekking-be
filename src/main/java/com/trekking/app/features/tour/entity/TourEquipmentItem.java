@@ -15,7 +15,9 @@ public class TourEquipmentItem extends TimestampedEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
-    @Column(name = "package_id", nullable = false)
+    @Column(name = "tour_id", nullable = false)
+    private Long tourId;
+    @Column(name = "package_id")
     private Long packageId;
     @Column(name = "equipment_id", nullable = false)
     private Long equipmentId;

@@ -34,13 +34,17 @@ public class TourSecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.GET,
                                 "/api/v1/tours/equipment-catalog",
-                                "/api/v1/tours/rental-packages").hasRole("ADMIN")
+                                "/api/v1/tours/rental-packages",
+                                "/api/v1/tours/*/schedules/latest",
+                                "/api/v1/tours/schedules").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET,
                                 "/api/v1/tours",
                                 "/api/v1/tours/*",
                                 "/api/v1/tours/*/schedules",
                                 "/api/v1/tours/*/schedules/*",
                                 "/api/v1/tours/*/activities",
+                                "/api/v1/tours/*/itinerary",
+                                "/api/v1/tours/*/terms",
                                 "/api/v1/tours/*/required-items",
                                 "/api/v1/tours/*/equipment").permitAll()
                         .anyRequest().hasRole("ADMIN"))

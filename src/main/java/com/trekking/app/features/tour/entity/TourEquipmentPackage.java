@@ -32,16 +32,16 @@ public class TourEquipmentPackage extends TimestampedEntity {
     @Column(name = "included_items", nullable = false, columnDefinition = "text")
     private String includedItems;
 
-    @Column(name = "shared_items", columnDefinition = "text")
-    private String sharedItems;
-
-    @Column(name = "personal_items_to_bring", columnDefinition = "text")
-    private String personalItemsToBring;
-
     @Column(name = "rental_price_vnd")
     private Long rentalPriceVnd;
 
-    @OneToOne(fetch = FetchType.LAZY, optional = false)
+    @Column(name = "active", nullable = false)
+    private Boolean active = true;
+
+    @Column(name = "needs_review", nullable = false)
+    private Boolean needsReview = false;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "tour_id", referencedColumnName = "id", insertable = false, updatable = false)
     @Setter(AccessLevel.NONE)
     private Tour tour;
