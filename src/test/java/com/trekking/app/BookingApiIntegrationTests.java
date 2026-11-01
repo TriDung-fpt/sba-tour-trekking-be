@@ -116,12 +116,20 @@ class BookingApiIntegrationTests extends AccountAuthorizationTestSupport {
                         .andExpect(status().isOk())
                         .andExpect(jsonPath("$.content[0].id").value(bookingId)));
 
+        jdbc.update("""
+                insert into trekking.equipment_reservations(booking_id, schedule_id, selection_key, status,
+                    participant_count, rental_fee_vnd, hold_expires_at, equipment_snapshot)
+                values (?, ?, 'test-selection', 'held', 2, 0, current_timestamp + interval '10 minutes', '{}'::jsonb)
+                """, bookingId, scheduleId);
         Map<String, String> cancel = Map.of("reason", "Change of plans");
         show("Cancel booking", "POST", bookingPath + "/cancel", cancel,
                 authPost(bookingPath + "/cancel", cancel, customerSession)
                         .andExpect(status().isOk())
                         .andExpect(jsonPath("$.status").value("CANCELLED"))
                         .andExpect(jsonPath("$.refundRequired").value(false)));
+        org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+                "select status from trekking.equipment_reservations where booking_id=?", String.class, bookingId))
+                .isEqualTo("released");
 
         show("Availability after cancel", "GET", "/api/v1/schedules/" + scheduleId + "/availability", null,
                 authGet("/api/v1/schedules/" + scheduleId + "/availability", customerSession)

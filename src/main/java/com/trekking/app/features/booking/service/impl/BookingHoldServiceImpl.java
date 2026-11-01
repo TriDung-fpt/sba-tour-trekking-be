@@ -5,6 +5,7 @@ import com.trekking.app.features.booking.enums.BookingStatus;
 import com.trekking.app.features.booking.repository.BookingRepository;
 import com.trekking.app.features.booking.repository.BookingScheduleRepository;
 import com.trekking.app.features.booking.service.BookingHoldService;
+import com.trekking.app.features.equipment.service.EquipmentReservationService;
 import com.trekking.app.features.tour.entity.TourSchedule;
 import java.time.Clock;
 import java.time.OffsetDateTime;
@@ -23,14 +24,17 @@ public class BookingHoldServiceImpl implements BookingHoldService {
     private final BookingScheduleRepository schedules;
     private final TransactionTemplate newTransaction;
     private final Clock clock;
+    private final EquipmentReservationService equipmentReservations;
 
     public BookingHoldServiceImpl(BookingRepository bookings, BookingScheduleRepository schedules,
-                                  PlatformTransactionManager transactionManager, Clock clock) {
+                                  PlatformTransactionManager transactionManager, Clock clock,
+                                  EquipmentReservationService equipmentReservations) {
         this.bookings = bookings;
         this.schedules = schedules;
         this.newTransaction = new TransactionTemplate(transactionManager);
         this.newTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         this.clock = clock;
+        this.equipmentReservations = equipmentReservations;
     }
 
     @Override
@@ -55,6 +59,7 @@ public class BookingHoldServiceImpl implements BookingHoldService {
         TourSchedule schedule = schedules.findForUpdate(booking.getScheduleId()).orElseThrow();
         schedule.setHeldSeats(schedule.getHeldSeats() - booking.getParticipantCount());
         booking.setStatus(BookingStatus.EXPIRED);
+        equipmentReservations.release(bookingId);
         return true;
     }
 }

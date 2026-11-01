@@ -29,6 +29,7 @@ import com.trekking.app.features.booking.repository.BookingScheduleRepository;
 import com.trekking.app.features.booking.repository.ParticipantRepository;
 import com.trekking.app.features.booking.service.BookingHoldService;
 import com.trekking.app.features.booking.service.BookingService;
+import com.trekking.app.features.equipment.service.EquipmentReservationService;
 import com.trekking.app.features.policy.entity.Policy;
 import com.trekking.app.features.policy.entity.PolicyVersion;
 import com.trekking.app.features.policy.enums.PolicyKind;
@@ -71,10 +72,11 @@ public class BookingServiceImpl implements BookingService {
     private final BookingMapper mapper;
     private final AuthorizationService authorization;
     private final Clock clock;
+    private final EquipmentReservationService equipmentReservations;
 
     public BookingServiceImpl(BookingRepository bookings, ParticipantRepository participants,
                               BookingScheduleRepository schedules, BookingHoldService holds, BookingMapper mapper,
-                              AuthorizationService authorization, Clock clock) {
+                              AuthorizationService authorization, Clock clock, EquipmentReservationService equipmentReservations) {
         this.bookings = bookings;
         this.participants = participants;
         this.schedules = schedules;
@@ -82,6 +84,7 @@ public class BookingServiceImpl implements BookingService {
         this.mapper = mapper;
         this.authorization = authorization;
         this.clock = clock;
+        this.equipmentReservations = equipmentReservations;
     }
 
     @Override
@@ -248,6 +251,7 @@ public class BookingServiceImpl implements BookingService {
         booking.setCancelledAt(OffsetDateTime.now(clock));
         booking.setCancellationReason(request.reason().trim());
         booking.setCancelledBy(customerId);
+        equipmentReservations.release(bookingId);
         bookings.flush();
         return cancellation(booking);
     }
@@ -258,8 +262,11 @@ public class BookingServiceImpl implements BookingService {
         TourSchedule schedule = schedules.findById(scheduleId)
                 .orElseThrow(() -> new BookingException(BookingErrorCode.SCHEDULE_NOT_FOUND));
         boolean published = schedule.getTour().getStatus() == TourStatus.PUBLISHED;
+        PolicyVersion policy = schedule.getTour().getCancellationPolicyVersion();
         if (!published && !canManageBookings()) throw new BookingException(BookingErrorCode.SCHEDULE_NOT_FOUND);
         boolean bookable = published
+                && policy != null && policy.getRevocation() == null && Boolean.TRUE.equals(policy.getPolicy().getActive())
+                && policy.getApprovedAt() != null && !policy.getEffectiveFrom().isAfter(OffsetDateTime.now(clock))
                 && schedule.getStatus() == ScheduleStatus.SCHEDULED
                 && schedule.getStartsAt().isAfter(OffsetDateTime.now(clock))
                 && BookingMapper.availableSeats(schedule) > 0;
@@ -274,7 +281,8 @@ public class BookingServiceImpl implements BookingService {
         }
         // Use exactly the version assigned to the tour; never substitute a newer one.
         PolicyVersion version = tour.getCancellationPolicyVersion();
-        if (version == null || version.getApprovedAt() == null || version.getEffectiveFrom().isAfter(now)
+        if (version == null || version.getRevocation() != null || !Boolean.TRUE.equals(version.getPolicy().getActive())
+                || version.getApprovedAt() == null || version.getEffectiveFrom().isAfter(now)
                 || version.getPolicy().getKind() != PolicyKind.CANCELLATION) {
             throw new BookingException(BookingErrorCode.BOOKING_NOT_AVAILABLE,
                     "Tour has no effective cancellation policy");

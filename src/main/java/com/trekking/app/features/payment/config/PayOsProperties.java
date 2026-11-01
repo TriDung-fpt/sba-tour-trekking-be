@@ -32,5 +32,13 @@ public class PayOsProperties {
         }
     }
 
+    public void requireChecksumConfigured() {
+        if (blank(checksumKey)) {
+            throw new com.trekking.app.core.exception.AuthException(
+                    org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE,
+                    "PAYMENT_PROVIDER_UNAVAILABLE", "PayOS checksum key must be configured");
+        }
+    }
+
     private static boolean blank(String value) { return value == null || value.isBlank(); }
 }

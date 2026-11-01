@@ -41,6 +41,24 @@ public abstract class AuthTestInfrastructure {
                     "/docker-entrypoint-initdb.d/zzzzzzzzzzzz_add_equipment_catalog_images.sql")
             .withCopyFileToContainer(MountableFile.forHostPath(Path.of("schema/migrations/012_define_rental_price_units.sql")),
                     "/docker-entrypoint-initdb.d/zzzzzzzzzzzzz_define_rental_price_units.sql")
+            .withCopyFileToContainer(MountableFile.forHostPath(Path.of("schema/migrations/013_add_payment_checkout_url.sql")),
+                    "/docker-entrypoint-initdb.d/zzzzzzzzzzzzzz_add_payment_checkout_url.sql")
+            .withCopyFileToContainer(MountableFile.forHostPath(Path.of("schema/migrations/014_equipment_inventory_operations.sql")),
+                    "/docker-entrypoint-initdb.d/zzzzzzzzzzzzzzz_equipment_inventory_operations.sql")
+            .withCopyFileToContainer(MountableFile.forHostPath(Path.of("schema/migrations/015_policy_revocations.sql")),
+                    "/docker-entrypoint-initdb.d/zzzzzzzzzzzzzzzz_policy_revocations.sql")
+            .withCopyFileToContainer(MountableFile.forHostPath(Path.of("schema/migrations/016_tour_itinerary_days.sql")),
+                    "/docker-entrypoint-initdb.d/zzzzzzzzzzzzzzzzz_tour_itinerary_days.sql")
+            .withCopyFileToContainer(MountableFile.forHostPath(Path.of("schema/migrations/017_tour_terms.sql")),
+                    "/docker-entrypoint-initdb.d/zzzzzzzzzzzzzzzzzz_tour_terms.sql")
+            .withCopyFileToContainer(MountableFile.forHostPath(Path.of("schema/migrations/018_policy_deleted.sql")),
+                    "/docker-entrypoint-initdb.d/zzzzzzzzzzzzzzzzzzz_policy_deleted.sql")
+            .withCopyFileToContainer(MountableFile.forHostPath(Path.of("schema/migrations/019_schedule_details_updated.sql")),
+                    "/docker-entrypoint-initdb.d/zzzzzzzzzzzzzzzzzzzz_schedule_details_updated.sql")
+            .withCopyFileToContainer(MountableFile.forHostPath(Path.of("schema/migrations/020_tour_schedule_defaults.sql")),
+                    "/docker-entrypoint-initdb.d/zzzzzzzzzzzzzzzzzzzzz_schedule_defaults.sql")
+            .withCopyFileToContainer(MountableFile.forHostPath(Path.of("schema/migrations/021_multiple_tour_equipment_packages_and_items.sql")),
+                    "/docker-entrypoint-initdb.d/zzzzzzzzzzzzzzzzzzzzzz_multiple_tour_equipment_packages_and_items.sql")
             .waitingFor(Wait.forLogMessage(".*database system is ready to accept connections.*\\n", 2))
             .withStartupTimeout(Duration.ofMinutes(2));
     static final GenericContainer<?> REDIS = new GenericContainer<>(DockerImageName.parse("redis:8.2-alpine"))
