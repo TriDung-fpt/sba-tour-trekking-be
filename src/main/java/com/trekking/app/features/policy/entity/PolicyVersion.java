@@ -40,6 +40,9 @@ public class PolicyVersion extends TimestampedEntity {
     @Column(name = "approved_at")
     private OffsetDateTime approvedAt;
 
+    @OneToOne(mappedBy = "version", fetch = FetchType.LAZY)
+    private PolicyVersionRevocation revocation;
+
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "policy_id", referencedColumnName = "id", insertable = false, updatable = false)
     @Setter(AccessLevel.NONE)
