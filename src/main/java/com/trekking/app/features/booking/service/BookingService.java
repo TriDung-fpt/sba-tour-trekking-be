@@ -11,12 +11,15 @@ import com.trekking.app.features.booking.dto.response.BookingDetailResponse;
 import com.trekking.app.features.booking.dto.response.BookingSummaryResponse;
 import com.trekking.app.features.booking.dto.response.ScheduleAvailabilityResponse;
 import com.trekking.app.features.booking.enums.BookingStatus;
+import java.util.List;
 import org.springframework.data.domain.Page;
 
 public interface BookingService {
     BookingCreateResult create(CreateBookingRequest request);
 
     Page<BookingSummaryResponse> listMine(BookingStatus status, int page, int size);
+
+    List<BookingSummaryResponse> activeHolds();
 
     Page<BookingSummaryResponse> search(BookingSearchCriteria criteria, int page, int size);
 

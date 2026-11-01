@@ -70,6 +70,16 @@ public class PaymentServiceImpl implements PaymentService {
         businessAuthorization.requirePayment(bookingId);
         Booking booking = entities.find(Booking.class, bookingId);
         if (booking == null) throw notFound();
+        OffsetDateTime now = OffsetDateTime.now(clock);
+        if (booking.getStatus() == BookingStatus.PENDING_PAYMENT && !booking.getHoldExpiresAt().isAfter(now)) {
+            throw conflict("BOOKING_HOLD_EXPIRED", "Booking hold has expired");
+        }
+        if (booking.getStatus() != BookingStatus.PENDING_PAYMENT && booking.getStatus() != BookingStatus.CONFIRMED) {
+            throw conflict("BOOKING_NOT_PAYABLE", "Booking is not in a payable state");
+        }
+        if (booking.getStatus() == BookingStatus.CONFIRMED && request.purpose() == PaymentPurpose.DEPOSIT) {
+            throw conflict("DEPOSIT_ALREADY_PAID", "A confirmed booking cannot accept a deposit payment");
+        }
 
         BigDecimal paid = payments.acceptedTotal(bookingId);
         var existing = attempts.findFirstByBookingIdAndProviderAndPurposeAndStatusOrderByCreatedAtDesc(
@@ -181,8 +191,9 @@ public class PaymentServiceImpl implements PaymentService {
         attempt.setStatus(PaymentStatus.SUCCEEDED);
         attempts.save(attempt);
         if (!late && !exceedsOutstanding) {
-            bookingPayments.confirmWhenDepositPaid(attempt.getBookingId());
-            equipmentReservations.confirm(attempt.getBookingId());
+            if (bookingPayments.confirmWhenDepositPaid(attempt.getBookingId())) {
+                equipmentReservations.confirm(attempt.getBookingId());
+            }
         }
         if (late) notice.setProcessingError("Payment arrived after the attempt or booking expired; manual review required");
         else if (exceedsOutstanding) notice.setProcessingError("Payment exceeds the remaining booking amount; manual review required");

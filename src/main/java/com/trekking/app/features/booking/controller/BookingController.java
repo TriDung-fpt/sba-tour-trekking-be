@@ -11,6 +11,7 @@ import com.trekking.app.features.booking.dto.response.BookingDetailResponse;
 import com.trekking.app.features.booking.dto.response.BookingSummaryResponse;
 import com.trekking.app.features.booking.enums.BookingStatus;
 import com.trekking.app.features.booking.service.BookingService;
+import java.util.List;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
@@ -39,6 +40,11 @@ public class BookingController {
                                              @RequestParam(defaultValue = "0") int page,
                                              @RequestParam(defaultValue = "20") int size) {
         return bookings.listMine(status, page, size);
+    }
+
+    @GetMapping("/my/active-holds")
+    public List<BookingSummaryResponse> activeHolds() {
+        return bookings.activeHolds();
     }
 
     @GetMapping

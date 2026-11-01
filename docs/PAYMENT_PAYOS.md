@@ -8,12 +8,14 @@ Set the PayOS channel credentials and frontend URLs in the local `.env` file:
 PAYOS_CLIENT_ID=
 PAYOS_API_KEY=
 PAYOS_CHECKSUM_KEY=
-PAYOS_RETURN_URL=http://localhost:3000/payment/result
-PAYOS_CANCEL_URL=http://localhost:3000/payment/cancel
+PAYOS_RETURN_URL=http://localhost:5173/payment/result
+PAYOS_CANCEL_URL=http://localhost:5173/payment/cancel
 PAYOS_API_BASE_URL=https://api-merchant.payos.vn
 ```
 
 Register `POST /api/v1/payments/payos/webhook` as the payment channel webhook URL in PayOS. The backend accepts payment state only from a signature-verified provider webhook, not from the browser return URL. Providers implement the shared `PaymentGateway` contract for link creation and webhook verification/parsing.
+
+The local frontend runs on Vite port `5173`, so the return and cancel URLs above must use that port. The result screen waits for server-side payment confirmation; cancelling checkout returns the customer to the active booking's deposit page while the 15-minute hold remains, or to the bookings list after it expires.
 
 ## Customer API
 

@@ -12,6 +12,7 @@ import java.time.OffsetDateTime;
 import java.util.List;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -42,6 +43,17 @@ public class BookingHoldServiceImpl implements BookingHoldService {
         OffsetDateTime now = OffsetDateTime.now(clock);
         List<Long> ids = bookings.findDueHoldIdsForSchedule(scheduleId, BookingStatus.PENDING_PAYMENT, now,
                 PageRequest.of(0, BATCH_SIZE));
+        int expired = 0;
+        for (Long id : ids) {
+            if (Boolean.TRUE.equals(newTransaction.execute(status -> expire(id, now)))) expired++;
+        }
+        return expired;
+    }
+
+    @Scheduled(fixedDelay = 60_000)
+    public int expireDueHolds() {
+        OffsetDateTime now = OffsetDateTime.now(clock);
+        List<Long> ids = bookings.findDueHoldIds(BookingStatus.PENDING_PAYMENT, now, PageRequest.of(0, BATCH_SIZE));
         int expired = 0;
         for (Long id : ids) {
             if (Boolean.TRUE.equals(newTransaction.execute(status -> expire(id, now)))) expired++;

@@ -96,12 +96,49 @@ class BookingApiIntegrationTests extends AccountAuthorizationTestSupport {
                         .andExpect(status().isConflict())
                         .andExpect(jsonPath("$.code").value("INSUFFICIENT_SEATS")));
 
+        long tourId = jdbc.queryForObject("select tour_id from trekking.tour_schedules where id=?", Long.class, scheduleId);
+        long sleepingBag = jdbc.queryForObject("insert into trekking.equipment(name) values ('Sleeping bag') returning id", Long.class);
+        jdbc.update("insert into trekking.equipment_inventory(equipment_id, total_quantity, maintenance_quantity) values (?, 10, 2)", sleepingBag);
+        long packageId = jdbc.queryForObject("""
+                insert into trekking.tour_equipment_packages(tour_id, title, included_items, rental_price_vnd)
+                values (?, 'Camp combo', 'Sleeping bag × 2', 300000) returning id
+                """, Long.class, tourId);
+        long comboLineId = jdbc.queryForObject("""
+                insert into trekking.tour_equipment_items(tour_id, package_id, equipment_id, quantity_in_package)
+                values (?, ?, ?, 2) returning id
+                """, Long.class, tourId, packageId, sleepingBag);
+        long individualLineId = jdbc.queryForObject("""
+                insert into trekking.tour_equipment_items(tour_id, package_id, equipment_id,
+                    quantity_in_package, individual_rental_price_vnd)
+                values (?, null, ?, 1, 70000) returning id
+                """, Long.class, tourId, sleepingBag);
         Map<String, Object> withPackage = Map.of("idempotencyKey", "demo-key-3", "scheduleId", scheduleId,
-                "equipmentChoice", "TOUR_PACKAGE", "passengers", List.of(Map.of("fullName", "P1")));
-        show("Equipment package is not available yet", "POST", "/api/v1/bookings", withPackage,
+                "equipmentChoice", "TOUR_PACKAGE", "packageQuantities", Map.of(Long.toString(packageId), 1),
+                "itemQuantities", Map.of(Long.toString(individualLineId), 1),
+                "passengers", List.of(Map.of("fullName", "P1")));
+        MvcResult equipmentBookingResult = show("Book a combo plus the same item individually", "POST", "/api/v1/bookings", withPackage,
                 authPost("/api/v1/bookings", withPackage, customerSession)
-                        .andExpect(status().isServiceUnavailable())
-                        .andExpect(jsonPath("$.code").value("EQUIPMENT_SERVICE_UNAVAILABLE")));
+                        .andExpect(status().isCreated())
+                        .andExpect(jsonPath("$.price.basePriceVnd").value(2000000))
+                        .andExpect(jsonPath("$.price.equipmentFeeVnd").value(370000))
+                        .andExpect(jsonPath("$.price.totalPriceVnd").value(2370000))
+                        .andExpect(jsonPath("$.price.depositAmountVnd").value(711000))
+                        .andExpect(jsonPath("$.equipmentSnapshot.packages[0].components[0].name").value("Sleeping bag")));
+        long equipmentBookingId = json.readTree(equipmentBookingResult.getResponse().getContentAsString()).get("id").asLong();
+        org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("""
+                select sum(ri.quantity) from trekking.equipment_reservation_items ri
+                join trekking.equipment_reservations r on r.id=ri.reservation_id where r.booking_id=?
+                """, Integer.class, equipmentBookingId)).isEqualTo(3);
+        authPost("/api/v1/bookings", withPackage, customerSession).andExpect(status().isOk());
+        Map<String, Object> changedRetry = Map.of("idempotencyKey", "demo-key-3", "scheduleId", scheduleId,
+                "equipmentChoice", "TOUR_PACKAGE", "packageQuantities", Map.of(Long.toString(packageId), 1),
+                "itemQuantities", Map.of(Long.toString(individualLineId), 2),
+                "passengers", List.of(Map.of("fullName", "P1")));
+        authPost("/api/v1/bookings", changedRetry, customerSession).andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("IDEMPOTENCY_KEY_REUSED"));
+        authPost("/api/v1/bookings/" + equipmentBookingId + "/cancel", Map.of("reason", "Test cleanup"), customerSession)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
 
         show("Another customer cannot see the booking", "GET", bookingPath, null,
                 authGet(bookingPath, strangerSession)
@@ -114,7 +151,7 @@ class BookingApiIntegrationTests extends AccountAuthorizationTestSupport {
         show("Operator list filtered by schedule", "GET", "/api/v1/bookings?scheduleId=" + scheduleId, null,
                 authGet("/api/v1/bookings?scheduleId=" + scheduleId, adminSession)
                         .andExpect(status().isOk())
-                        .andExpect(jsonPath("$.content[0].id").value(bookingId)));
+                        .andExpect(jsonPath("$.content[*].id").value(org.hamcrest.Matchers.hasItem((int) bookingId))));
 
         jdbc.update("""
                 insert into trekking.equipment_reservations(booking_id, schedule_id, selection_key, status,

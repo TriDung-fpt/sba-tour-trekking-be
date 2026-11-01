@@ -27,18 +27,20 @@ public class BookingPaymentServiceImpl implements BookingPaymentService {
 
     @Override
     @Transactional
-    public void confirmWhenDepositPaid(long bookingId) {
+    public boolean confirmWhenDepositPaid(long bookingId) {
         Booking booking = bookings.findForUpdate(bookingId).orElse(null);
-        if (booking == null || booking.getStatus() != BookingStatus.PENDING_PAYMENT) return;
+        if (booking == null) return false;
+        if (booking.getStatus() == BookingStatus.CONFIRMED) return true;
+        if (booking.getStatus() != BookingStatus.PENDING_PAYMENT) return false;
 
         OffsetDateTime now = OffsetDateTime.now(clock);
-        if (!booking.getHoldExpiresAt().isAfter(now)) return;
+        if (!booking.getHoldExpiresAt().isAfter(now)) return false;
 
         long depositAmount = BigDecimal.valueOf(booking.getTotalPriceVnd())
                 .multiply(booking.getDepositPercent())
                 .divide(BigDecimal.valueOf(100), 0, RoundingMode.CEILING)
                 .longValueExact();
-        if (bookings.acceptedPaymentTotalVnd(bookingId).compareTo(BigDecimal.valueOf(depositAmount)) < 0) return;
+        if (bookings.acceptedPaymentTotalVnd(bookingId).compareTo(BigDecimal.valueOf(depositAmount)) < 0) return false;
 
         TourSchedule schedule = schedules.findForUpdate(booking.getScheduleId()).orElseThrow();
         int seats = booking.getParticipantCount();
@@ -48,6 +50,6 @@ public class BookingPaymentServiceImpl implements BookingPaymentService {
         schedule.setHeldSeats(schedule.getHeldSeats() - seats);
         schedule.setConfirmedSeats(schedule.getConfirmedSeats() + seats);
         booking.setStatus(BookingStatus.CONFIRMED);
-        booking.setPriceLockedAt(now);
+        return true;
     }
 }

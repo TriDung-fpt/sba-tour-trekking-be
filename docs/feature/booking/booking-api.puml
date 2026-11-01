@@ -14,7 +14,7 @@ participant "AuthorizationService" as Auth
 database "Postgres" as DB
 
 == POST /api/v1/bookings (create) ==
-C -> Ctl : POST /api/v1/bookings\n{idempotencyKey, scheduleId, equipmentChoice, passengers[]}
+C -> Ctl : POST /api/v1/bookings\n{idempotencyKey, scheduleId, equipmentChoice,\npackageQuantities{}, itemQuantities{}, passengers[]}
 Ctl -> Ctl : @Valid request body
 Ctl -> S : create(request)
 S -> Auth : authorization()
@@ -45,12 +45,17 @@ else tour not published / not SCHEDULED / departed / no effective cancellation p
     S --> C : 409 BOOKING_NOT_AVAILABLE
 else capacity - held - confirmed < passengers
     S --> C : 409 INSUFFICIENT_SEATS
-else equipmentChoice = TOUR_PACKAGE
-    S --> C : 503 EQUIPMENT_SERVICE_UNAVAILABLE
 end
-S -> DB : INSERT bookings\n(price + policy snapshot, hold_expires_at = now + 15 min)
+S -> DB : INSERT bookings\n(price version 2 + policy snapshot, hold_expires_at = now + 15 min)
+S -> DB : lock inventory rows in equipment ID order\nvalidate stock, maintenance and overlapping reservations
+alt unavailable or invalid equipment choice
+    S --> C : 409 EQUIPMENT_UNAVAILABLE / EQUIPMENT_NOT_RENTABLE
+end
+S -> DB : INSERT equipment_reservations + reservation items\n(snapshot package/item names, components, quantities and prices)
+S -> DB : UPDATE booking equipment fee and snapshot
 S -> DB : INSERT participants
 S -> DB : UPDATE tour_schedules held_seats += passengers
+note right of S : total = base price × passenger count\n+ equipment rental fee once per booking
 S --> Ctl : created = true
 Ctl --> C : 201 BookingDetailResponse
 

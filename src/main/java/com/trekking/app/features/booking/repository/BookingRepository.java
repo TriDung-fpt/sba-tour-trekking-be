@@ -36,6 +36,10 @@ public interface BookingRepository extends JpaRepository<Booking, Long>, JpaSpec
 
         Optional<Booking> findByIdempotencyKey(String idempotencyKey);
 
+        @EntityGraph(attributePaths = { "schedule", "schedule.tour" })
+        List<Booking> findAllByCustomerIdAndStatusAndHoldExpiresAtAfterOrderByHoldExpiresAtAsc(
+                        Long customerId, BookingStatus status, OffsetDateTime now);
+
         @Override
         @EntityGraph(attributePaths = { "schedule", "schedule.tour" })
         Page<Booking> findAll(Specification<Booking> specification, Pageable pageable);
@@ -63,6 +67,10 @@ public interface BookingRepository extends JpaRepository<Booking, Long>, JpaSpec
          */
         @Query(value = "select 1 from (select pg_advisory_xact_lock(hashtextextended(:key, 0))) as advisory", nativeQuery = true)
         Integer lockIdempotencyKey(@Param("key") String key);
+
+        /** Serializes booking creation across tabs and schedules for one customer. */
+        @Query(value = "select 1 from (select pg_advisory_xact_lock(hashtextextended(concat('booking-customer:', :customerId), 0))) as advisory", nativeQuery = true)
+        Integer lockCustomerBookingCreation(@Param("customerId") long customerId);
 
         @Query(value = """
                         select coalesce(sum(amount_vnd), 0)

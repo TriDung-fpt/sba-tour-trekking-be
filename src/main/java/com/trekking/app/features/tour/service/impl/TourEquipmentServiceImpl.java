@@ -71,13 +71,13 @@ public class TourEquipmentServiceImpl implements TourEquipmentService {
     @Override
     public TourEquipmentResponse equipment(long tourId) {
         Tour tour = requireTour(tourId);
-        return equipmentForTour(tour);
+        return equipmentForTour(tour, false);
     }
 
     @Override
     public TourEquipmentResponse publicEquipment(long tourId) {
         Tour tour = requirePublishedTour(tourId);
-        return equipmentForTour(tour);
+        return equipmentForTour(tour, true);
     }
 
     @Override
@@ -236,7 +236,7 @@ public class TourEquipmentServiceImpl implements TourEquipmentService {
         tour.setEquipmentConfigVersion(currentVersion + 1L);
         tours.saveAndFlush(tour);
 
-        return equipmentForTour(tour);
+        return equipmentForTour(tour, false);
     }
 
     private static boolean matchesTemplateSnapshot(
@@ -293,10 +293,12 @@ public class TourEquipmentServiceImpl implements TourEquipmentService {
         return item;
     }
 
-    private TourEquipmentResponse equipmentForTour(Tour tour) {
+    private TourEquipmentResponse equipmentForTour(Tour tour, boolean publicAccess) {
         long tourId = tour.getId();
         long version = tour.getEquipmentConfigVersion() == null ? 0L : tour.getEquipmentConfigVersion();
-        List<TourEquipmentPackage> tourPackages = packages.findAllByTourIdAndActiveTrueOrderByIdAsc(tourId);
+        List<TourEquipmentPackage> tourPackages = packages.findAllByTourIdAndActiveTrueOrderByIdAsc(tourId).stream()
+                .filter(pkg -> !publicAccess || !Boolean.TRUE.equals(pkg.getNeedsReview()))
+                .toList();
         List<RentalPackageResponse> packageResponses = tourPackages.stream()
                 .map(pkg -> {
                     List<RentalItemResponse> pkgItems = items.findAllByPackageIdOrderByIdAsc(pkg.getId()).stream()

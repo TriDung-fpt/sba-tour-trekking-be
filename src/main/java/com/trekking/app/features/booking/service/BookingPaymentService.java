@@ -2,5 +2,5 @@ package com.trekking.app.features.booking.service;
 
 /** Booking-owned lifecycle transitions triggered by accepted customer payments. */
 public interface BookingPaymentService {
-    void confirmWhenDepositPaid(long bookingId);
+    boolean confirmWhenDepositPaid(long bookingId);
 }

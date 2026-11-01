@@ -69,32 +69,19 @@ public class EquipmentReservationServiceImpl implements EquipmentReservationServ
     @Transactional(propagation = Propagation.MANDATORY)
     public EquipmentHoldResult hold(EquipmentHoldRequest request) {
         OffsetDateTime now = OffsetDateTime.now(clock);
-        if (request.bookingId() <= 0 || request.scheduleId() <= 0 || request.participantCount() <= 0
-                || request.mode() == null || (request.packageId() != null && request.packageId() <= 0)) {
-            throw conflict("INVALID_EQUIPMENT_HOLD_REQUEST", "Booking, schedule, package and participant values must be positive");
+        if (request.bookingId() <= 0 || request.scheduleId() <= 0 || request.participantCount() <= 0) {
+            throw conflict("INVALID_EQUIPMENT_HOLD_REQUEST", "Booking, schedule and participant values must be positive");
         }
+        Map<Long, Integer> selectedPackages = request.packageQuantities() == null ? Map.of() : request.packageQuantities();
         Map<Long, Integer> selectedItems = request.itemQuantities() == null ? Map.of() : request.itemQuantities();
-        if (selectedItems.entrySet().stream()
-                .anyMatch(entry -> entry.getKey() == null || entry.getKey() <= 0 || entry.getValue() == null || entry.getValue() <= 0)) {
+        if (invalidQuantities(selectedPackages) || invalidQuantities(selectedItems)) {
             throw conflict("INVALID_EQUIPMENT_QUANTITY", "Equipment IDs and selected quantities must be positive");
-        }
-        if (request.mode() == EquipmentHoldRequest.Mode.NONE) {
-            if (request.packageId() != null || request.packageQuantity() != null || !selectedItems.isEmpty()) {
-                throw conflict("INVALID_EQUIPMENT_SELECTION", "NONE selection cannot include package or item details");
-            }
-        } else if (request.mode() == EquipmentHoldRequest.Mode.PACKAGE) {
-            if (request.packageId() == null || request.packageId() <= 0
-                    || request.packageQuantity() == null || request.packageQuantity() <= 0 || !selectedItems.isEmpty()) {
-                throw conflict("INVALID_EQUIPMENT_SELECTION", "PACKAGE selection requires a positive package quantity and no item selections");
-            }
-        } else if (request.packageId() != null || request.packageQuantity() != null || selectedItems.isEmpty()) {
-            throw conflict("INVALID_EQUIPMENT_SELECTION", "ITEMS selection requires item quantities and no package fields");
         }
         if (request.holdExpiresAt() == null || !request.holdExpiresAt().isAfter(now)
                 || request.holdExpiresAt().isAfter(now.plusMinutes(15))) {
             throw conflict("INVALID_EQUIPMENT_HOLD_EXPIRY", "Equipment holds must expire within 15 minutes");
         }
-        String selectionKey = selectionKey(request, selectedItems);
+        String selectionKey = selectionKey(request, selectedPackages, selectedItems);
         TourSchedule schedule = entities.find(TourSchedule.class, request.scheduleId(), LockModeType.PESSIMISTIC_WRITE);
         if (schedule == null) throw notFound();
         Booking booking = entities.find(Booking.class, request.bookingId());
@@ -110,108 +97,106 @@ public class EquipmentReservationServiceImpl implements EquipmentReservationServ
             if (current.getStatus().equals(RELEASED) || current.getStatus().equals(RETURNED)) {
                 throw conflict("EQUIPMENT_HOLD_RELEASED", "Equipment hold for this booking was already released");
             }
-            return new EquipmentHoldResult(current.getId(), current.getPackageId() != null,
+            return new EquipmentHoldResult(current.getId(), true,
                     current.getRentalFeeVnd(), current.getEquipmentSnapshot(), current.getStatus());
         }
 
-        if (request.mode() == EquipmentHoldRequest.Mode.NONE) {
+        if (selectedPackages.isEmpty() && selectedItems.isEmpty()) {
             return new EquipmentHoldResult(null, false, 0,
-                    serialize(Map.of("mode", "NONE", "participantCount", request.participantCount())), null);
+                    serialize(Map.of("mode", "SELF_PROVIDED", "participantCount", request.participantCount())), null);
         }
 
-        TourEquipmentPackage equipmentPackage = null;
-        List<TourEquipmentItem> items;
-        if (request.mode() == EquipmentHoldRequest.Mode.PACKAGE) {
-            equipmentPackage = packages.findById(request.packageId()).orElseThrow(EquipmentReservationServiceImpl::notFound);
-            if (!equipmentPackage.getTourId().equals(schedule.getTourId()) || !Boolean.TRUE.equals(equipmentPackage.getActive())) {
-                throw conflict("EQUIPMENT_PACKAGE_NOT_AVAILABLE", "Equipment package is not available for this schedule");
+        var packagesById = new LinkedHashMap<Long, TourEquipmentPackage>();
+        var selectedLines = new LinkedHashMap<Long, TourEquipmentItem>();
+        var quantitiesByItemId = new LinkedHashMap<Long, Integer>();
+        var packageSnapshots = new ArrayList<Map<String, Object>>();
+        long fee = 0L;
+        for (var selection : new TreeMap<>(selectedPackages).entrySet()) {
+            TourEquipmentPackage selectedPackage = packages.findById(selection.getKey()).orElseThrow(EquipmentReservationServiceImpl::notFound);
+            if (!selectedPackage.getTourId().equals(schedule.getTourId()) || !Boolean.TRUE.equals(selectedPackage.getActive())
+                    || Boolean.TRUE.equals(selectedPackage.getNeedsReview())) {
+                throw conflict("EQUIPMENT_PACKAGE_NOT_AVAILABLE", "Selected equipment package is not available for this schedule");
             }
-            if (equipmentPackage.getRentalPriceVnd() == null || equipmentPackage.getRentalPriceVnd() < 0) {
+            if (selectedPackage.getRentalPriceVnd() == null || selectedPackage.getRentalPriceVnd() < 0) {
                 throw conflict("EQUIPMENT_PACKAGE_PRICE_MISSING", "Equipment package rental price is not configured");
             }
-            items = packageItems.findAllByPackageIdOrderByIdAsc(equipmentPackage.getId());
-            if (items.isEmpty()) throw conflict("EQUIPMENT_PACKAGE_EMPTY", "Equipment package has no equipment items");
-        } else {
-            items = packageItems.findAllByTourIdAndPackageIdIsNullOrderByIdAsc(schedule.getTourId());
-            if (items.isEmpty()) {
-                items = packageItems.findActivePackageItemsByTourIdOrderByIdAsc(schedule.getTourId());
+            List<TourEquipmentItem> components = packageItems.findAllByPackageIdOrderByIdAsc(selectedPackage.getId());
+            if (components.isEmpty()) throw conflict("EQUIPMENT_PACKAGE_EMPTY", "Selected equipment package has no equipment items");
+            packagesById.put(selectedPackage.getId(), selectedPackage);
+            var componentSnapshots = new ArrayList<Map<String, Object>>();
+            for (var item : components) {
+                selectedLines.put(item.getId(), item);
+                quantitiesByItemId.put(item.getId(), multiplyQuantity(item.getQuantityInPackage(), selection.getValue()));
+                componentSnapshots.add(Map.of("itemId", item.getId(), "equipmentId", item.getEquipmentId(),
+                        "name", item.getEquipment().getName(), "quantityInPackage", item.getQuantityInPackage()));
             }
-            if (items.isEmpty()) {
-                if (!packages.existsByTourIdAndActiveTrue(schedule.getTourId())) throw notFound();
-                throw conflict("EQUIPMENT_PACKAGE_EMPTY", "Equipment package has no equipment items");
+            fee = addMoney(fee, multiplyMoney(selectedPackage.getRentalPriceVnd(), selection.getValue()));
+            packageSnapshots.add(Map.of("packageId", selectedPackage.getId(), "title", selectedPackage.getTitle(),
+                    "quantity", selection.getValue(), "unitPriceVnd", selectedPackage.getRentalPriceVnd(),
+                    "components", componentSnapshots));
+        }
+        if (!selectedItems.isEmpty()) {
+            for (var item : packageItems.findAllByTourIdAndPackageIdIsNullOrderByIdAsc(schedule.getTourId())) {
+                selectedLines.put(item.getId(), item);
+            }
+            if (!selectedLines.keySet().containsAll(selectedItems.keySet())) {
+                throw conflict("EQUIPMENT_NOT_RENTABLE", "A selected item is not available for individual rental on this tour");
+            }
+            for (var selection : new TreeMap<>(selectedItems).entrySet()) {
+                TourEquipmentItem item = selectedLines.get(selection.getKey());
+                if (item.getPackageId() != null || item.getIndividualRentalPriceVnd() == null || item.getIndividualRentalPriceVnd() < 0) {
+                    throw conflict("EQUIPMENT_NOT_RENTABLE", "A selected item is not available for individual rental on this tour");
+                }
+                quantitiesByItemId.put(item.getId(), selection.getValue());
             }
         }
+        selectedLines.keySet().retainAll(quantitiesByItemId.keySet());
 
-        Map<Long, TourEquipmentItem> itemsById = new LinkedHashMap<>();
-        items.forEach(item -> itemsById.put(item.getId(), item));
-        List<TourEquipmentItem> selectedLines;
-        Map<Long, Integer> quantitiesByItemId = new LinkedHashMap<>();
-        if (request.mode() == EquipmentHoldRequest.Mode.PACKAGE) {
-            selectedLines = items;
-            for (var item : selectedLines) {
-                quantitiesByItemId.put(item.getId(), multiplyQuantity(item.getQuantityInPackage(), request.packageQuantity()));
-            }
-        } else {
-            if (!itemsById.keySet().containsAll(selectedItems.keySet())) {
-                throw conflict("EQUIPMENT_NOT_IN_PACKAGE", "Selected item is not included in this package");
-            }
-            selectedLines = selectedItems.keySet().stream().sorted().map(itemsById::get).toList();
-            quantitiesByItemId.putAll(selectedItems);
-        }
-
-        List<Long> equipmentIds = selectedLines.stream().map(item -> item.getEquipmentId()).distinct().sorted().toList();
+        List<Long> equipmentIds = selectedLines.values().stream().map(item -> item.getEquipmentId()).distinct().sorted().toList();
         var lockedEquipment = equipment.findAllForUpdate(equipmentIds);
         if (lockedEquipment.size() != equipmentIds.size()) throw notFound();
         Map<Long, EquipmentInventory> byId = new LinkedHashMap<>();
         lockedEquipment.forEach(value -> byId.put(value.getEquipmentId(), value));
 
-        var quantities = new LinkedHashMap<Long, Integer>();
         var snapshotItems = new ArrayList<Map<String, Object>>();
-        long fee = 0L;
-        for (var packageItem : selectedLines) {
+        var quantities = new LinkedHashMap<Long, Integer>();
+        for (var packageItem : selectedLines.values()) {
             var inventoryItem = byId.get(packageItem.getEquipmentId());
-            if (!Boolean.TRUE.equals(inventoryItem.getActive())) throw conflict("EQUIPMENT_INACTIVE", "An item in this package is inactive");
+            if (!Boolean.TRUE.equals(inventoryItem.getActive())) throw conflict("EQUIPMENT_INACTIVE", "A selected equipment item is inactive");
             int selected = quantitiesByItemId.get(packageItem.getId());
-            long committed = reservations.committedQuantity(inventoryItem.getEquipmentId(), schedule.getStartsAt(), schedule.getEndsAt(), now);
-            int available = inventoryItem.getTotalQuantity() - inventoryItem.getMaintenanceQuantity() - Math.toIntExact(committed);
-            if (selected > available) throw conflict("EQUIPMENT_UNAVAILABLE", "Not enough equipment is available for this schedule");
-            quantities.merge(inventoryItem.getEquipmentId(), selected, Math::addExact);
-            long unitPrice = request.mode() == EquipmentHoldRequest.Mode.PACKAGE
-                    ? 0L : packageItem.getIndividualRentalPriceVnd() == null ? -1L : packageItem.getIndividualRentalPriceVnd();
-            if (request.mode() == EquipmentHoldRequest.Mode.ITEMS && unitPrice < 0) {
-                throw conflict("EQUIPMENT_NOT_RENTABLE", "A selected item does not have an individual rental price");
+            try {
+                quantities.merge(inventoryItem.getEquipmentId(), selected, Math::addExact);
+            } catch (ArithmeticException overflow) {
+                throw conflict("EQUIPMENT_QUANTITY_OUT_OF_RANGE", "Combined equipment quantity is outside the supported range");
             }
-            long lineFee = request.mode() == EquipmentHoldRequest.Mode.ITEMS
-                    ? multiplyMoney(unitPrice, selected) : 0L;
-            fee = addMoney(fee, lineFee);
+            Long unitPrice = packageItem.getPackageId() == null ? packageItem.getIndividualRentalPriceVnd() : null;
+            if (unitPrice != null) fee = addMoney(fee, multiplyMoney(unitPrice, selected));
             var lineSnapshot = new LinkedHashMap<String, Object>();
             lineSnapshot.put("itemId", packageItem.getId());
             lineSnapshot.put("equipmentId", inventoryItem.getEquipmentId());
             lineSnapshot.put("name", inventoryItem.getEquipment().getName());
             lineSnapshot.put("quantityInPackage", packageItem.getQuantityInPackage());
             lineSnapshot.put("selectedQuantity", selected);
-            if (request.mode() == EquipmentHoldRequest.Mode.ITEMS) lineSnapshot.put("unitPriceVnd", unitPrice);
+            if (unitPrice != null) lineSnapshot.put("unitPriceVnd", unitPrice);
             snapshotItems.add(lineSnapshot);
         }
-        if (request.mode() == EquipmentHoldRequest.Mode.PACKAGE) {
-            fee = multiplyMoney(equipmentPackage.getRentalPriceVnd(), request.packageQuantity());
+        for (var selection : quantities.entrySet()) {
+            var inventoryItem = byId.get(selection.getKey());
+            long committed = reservations.committedQuantity(selection.getKey(), schedule.getStartsAt(), schedule.getEndsAt(), now);
+            long available = (long) inventoryItem.getTotalQuantity() - inventoryItem.getMaintenanceQuantity() - committed;
+            if (selection.getValue() > available) throw conflict("EQUIPMENT_UNAVAILABLE", inventoryItem.getEquipment().getName() + " does not have enough stock for the selected schedule");
         }
         var snapshot = new LinkedHashMap<String, Object>();
-        snapshot.put("mode", request.mode().name());
-        snapshot.put("packageId", equipmentPackage == null ? null : equipmentPackage.getId());
-        snapshot.put("title", equipmentPackage == null ? "Thuê dụng cụ lẻ" : equipmentPackage.getTitle());
+        snapshot.put("mode", "SELECTED");
+        snapshot.put("packages", packageSnapshots);
         snapshot.put("participantCount", request.participantCount());
-        snapshot.put("packageQuantity", request.packageQuantity());
-        if (request.mode() == EquipmentHoldRequest.Mode.PACKAGE) {
-            snapshot.put("unitPriceVnd", equipmentPackage.getRentalPriceVnd());
-        }
         snapshot.put("rentalFeeVnd", fee);
         snapshot.put("items", snapshotItems);
 
         var reservation = new EquipmentReservation();
         reservation.setBookingId(request.bookingId());
         reservation.setScheduleId(schedule.getId());
-        reservation.setPackageId(equipmentPackage == null ? null : equipmentPackage.getId());
+        reservation.setPackageId(packagesById.size() == 1 && selectedItems.isEmpty() ? packagesById.keySet().iterator().next() : null);
         reservation.setSelectionKey(selectionKey);
         reservation.setStatus(HELD);
         reservation.setHoldExpiresAt(request.holdExpiresAt());
@@ -230,13 +215,16 @@ public class EquipmentReservationServiceImpl implements EquipmentReservationServ
         return new EquipmentHoldResult(reservation.getId(), true, fee, reservation.getEquipmentSnapshot(), HELD);
     }
 
-    private String selectionKey(EquipmentHoldRequest request, Map<Long, Integer> selectedItems) {
+    private String selectionKey(EquipmentHoldRequest request, Map<Long, Integer> selectedPackages, Map<Long, Integer> selectedItems) {
         var key = new LinkedHashMap<String, Object>();
-        key.put("mode", request.mode().name());
-        key.put("packageId", request.packageId());
-        key.put("packageQuantity", request.packageQuantity());
+        key.put("packageQuantities", new TreeMap<>(selectedPackages));
         key.put("itemQuantities", new TreeMap<>(selectedItems));
         return serialize(key);
+    }
+
+    private static boolean invalidQuantities(Map<Long, Integer> values) {
+        return values.entrySet().stream().anyMatch(entry -> entry.getKey() == null || entry.getKey() <= 0
+                || entry.getValue() == null || entry.getValue() <= 0);
     }
 
     private static int multiplyQuantity(int quantityPerPackage, int packageCount) {

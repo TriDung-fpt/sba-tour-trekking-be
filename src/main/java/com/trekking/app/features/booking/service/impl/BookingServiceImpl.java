@@ -30,6 +30,7 @@ import com.trekking.app.features.booking.repository.ParticipantRepository;
 import com.trekking.app.features.booking.service.BookingHoldService;
 import com.trekking.app.features.booking.service.BookingService;
 import com.trekking.app.features.equipment.service.EquipmentReservationService;
+import com.trekking.app.features.equipment.dto.request.EquipmentHoldRequest;
 import com.trekking.app.features.policy.entity.Policy;
 import com.trekking.app.features.policy.entity.PolicyVersion;
 import com.trekking.app.features.policy.enums.PolicyKind;
@@ -46,6 +47,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.HexFormat;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.data.domain.Page;
@@ -99,8 +103,19 @@ public class BookingServiceImpl implements BookingService {
             if (booking.getCustomerId() != customerId || !booking.getScheduleId().equals(request.scheduleId())) {
                 throw new BookingException(BookingErrorCode.IDEMPOTENCY_KEY_REUSED);
             }
+            String hash = requestHash(request);
+            if (booking.getEquipmentSnapshot().contains("\"requestHash\"")
+                    && !booking.getEquipmentSnapshot().contains("\"requestHash\":\"" + hash + "\"")) {
+                throw new BookingException(BookingErrorCode.IDEMPOTENCY_KEY_REUSED);
+            }
             return new BookingCreateResult(false, detail(booking, booking.getSchedule()));
         }
+
+        // A customer may have only one live hold, even across schedules or browser tabs.
+        // The transaction-scoped advisory lock closes the race between concurrent requests.
+        bookings.lockCustomerBookingCreation(customerId);
+        List<BookingSummaryResponse> activeHolds = activeHoldSummaries(customerId, OffsetDateTime.now(clock));
+        if (!activeHolds.isEmpty()) throw BookingException.activeBookingHolds(activeHolds);
 
         // Runs in its own transaction before the schedule lock to keep the Booking -> Schedule lock order.
         holds.expireDueHolds(request.scheduleId());
@@ -112,9 +127,12 @@ public class BookingServiceImpl implements BookingService {
         int seats = request.passengers().size();
         int available = BookingMapper.availableSeats(schedule);
         if (available < seats) throw BookingException.insufficientSeats(available);
-        if (request.equipmentChoice() == BookingEquipmentChoice.TOUR_PACKAGE) {
-            // No equipment inventory adapter exists yet; never record a fake package reservation.
-            throw new BookingException(BookingErrorCode.EQUIPMENT_SERVICE_UNAVAILABLE);
+        Map<Long, Integer> packageQuantities = request.packageQuantities() == null ? Map.of() : request.packageQuantities();
+        Map<Long, Integer> itemQuantities = request.itemQuantities() == null ? Map.of() : request.itemQuantities();
+        boolean hasEquipment = !packageQuantities.isEmpty() || !itemQuantities.isEmpty();
+        if (hasEquipment != (request.equipmentChoice() == BookingEquipmentChoice.TOUR_PACKAGE)) {
+            throw new BookingException(BookingErrorCode.INVALID_EQUIPMENT_SELECTION,
+                    "Choose equipment options or select self-provided equipment");
         }
 
         Booking booking = new Booking();
@@ -129,9 +147,16 @@ public class BookingServiceImpl implements BookingService {
         booking.setDepositPercent(schedule.getDepositPercent());
         booking.setCancellationPolicyVersionId(policy.getId());
         booking.setPolicySnapshot(mapper.toJson(policySnapshot(policy)));
-        booking.setEquipmentSnapshot(mapper.toJson(Map.of("choice", BookingEquipmentChoice.SELF_PROVIDED.name())));
+        booking.setEquipmentSnapshot(mapper.toJson(Map.of("choice", request.equipmentChoice().name(), "requestHash", requestHash(request))));
         booking.setHoldExpiresAt(now.plus(HOLD_DURATION));
         booking.setBalanceDueAt(schedule.getBalanceDueAt());
+        booking = bookings.saveAndFlush(booking);
+
+        var hold = equipmentReservations.hold(new EquipmentHoldRequest(booking.getId(), schedule.getId(),
+                booking.getHoldExpiresAt(), seats, packageQuantities, itemQuantities));
+        booking.setEquipmentFeeVnd(hold.rentalFeeVnd());
+        booking.setIncludesEquipment(hold.includesEquipment());
+        booking.setEquipmentSnapshot(withRequestHash(hold.equipmentSnapshot(), request.equipmentChoice(), requestHash(request)));
         booking = bookings.saveAndFlush(booking);
 
         saveParticipants(booking.getId(), customerId, request.passengers());
@@ -147,6 +172,12 @@ public class BookingServiceImpl implements BookingService {
         Specification<Booking> filter = (root, q, cb) -> cb.equal(root.get("customerId"), customerId);
         if (status != null) filter = filter.and((root, q, cb) -> cb.equal(root.get("status"), status));
         return summaries(bookings.findAll(filter, pageRequest(page, size)));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<BookingSummaryResponse> activeHolds() {
+        return activeHoldSummaries(requireCustomer(), OffsetDateTime.now(clock));
     }
 
     @Override
@@ -353,6 +384,19 @@ public class BookingServiceImpl implements BookingService {
         });
     }
 
+    private List<BookingSummaryResponse> activeHoldSummaries(long customerId, OffsetDateTime now) {
+        List<Booking> active = bookings.findAllByCustomerIdAndStatusAndHoldExpiresAtAfterOrderByHoldExpiresAtAsc(
+                customerId, BookingStatus.PENDING_PAYMENT, now);
+        if (active.isEmpty()) return List.of();
+        Map<Long, MoneyTotalsView> totals = bookings.moneyTotals(active.stream().map(Booking::getId).toList()).stream()
+                .collect(Collectors.toMap(MoneyTotalsView::getBookingId, Function.identity()));
+        return active.stream().map(booking -> {
+            MoneyTotalsView money = totals.get(booking.getId());
+            return money == null ? mapper.toSummary(booking, 0, 0)
+                    : mapper.toSummary(booking, money.getPaidVnd(), money.getRefundedVnd());
+        }).toList();
+    }
+
     private long requireCustomer() {
         AuthorizationResponse current = authorization.authorization();
         if (!current.roles().contains(RoleType.CUSTOMER.getValue())) {
@@ -382,5 +426,26 @@ public class BookingServiceImpl implements BookingService {
 
     private static long toLong(BigDecimal value) {
         return value == null ? 0 : value.longValueExact();
+    }
+
+    private static String requestHash(CreateBookingRequest request) {
+        try {
+            String canonical = request.scheduleId() + "|" + request.equipmentChoice() + "|"
+                    + new java.util.TreeMap<>(request.packageQuantities() == null ? Map.of() : request.packageQuantities()) + "|"
+                    + new java.util.TreeMap<>(request.itemQuantities() == null ? Map.of() : request.itemQuantities()) + "|"
+                    + request.passengers().stream().map(p -> p.fullName() + "~" + p.phone() + "~" + p.email() + "~" + p.isBookingCustomer()).toList();
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(canonical.getBytes(StandardCharsets.UTF_8)));
+        } catch (Exception exception) {
+            throw new IllegalStateException("Could not fingerprint booking request", exception);
+        }
+    }
+
+    private static String withRequestHash(String snapshot, BookingEquipmentChoice choice, String hash) {
+        String json = snapshot == null || snapshot.isBlank() ? "{}" : snapshot;
+        int closingBrace = json.lastIndexOf('}');
+        if (closingBrace < 0) throw new IllegalStateException("Invalid equipment snapshot");
+        String prefix = json.substring(0, closingBrace).trim();
+        return prefix + (prefix.endsWith("{") ? "" : ",") + "\"choice\":\"" + choice.name()
+                + "\",\"requestHash\":\"" + hash + "\"}";
     }
 }
