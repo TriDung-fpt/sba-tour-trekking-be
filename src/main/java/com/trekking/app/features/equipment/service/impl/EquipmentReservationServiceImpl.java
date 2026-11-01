@@ -13,6 +13,7 @@ import com.trekking.app.features.equipment.repository.EquipmentReservationReposi
 import com.trekking.app.features.equipment.repository.TourEquipmentPackageLookupRepository;
 import com.trekking.app.features.equipment.service.EquipmentReservationService;
 import com.trekking.app.features.tour.entity.TourEquipmentItem;
+import com.trekking.app.features.tour.entity.TourEquipmentPackage;
 import com.trekking.app.features.tour.entity.TourSchedule;
 import com.trekking.app.features.tour.repository.TourEquipmentItemRepository;
 import jakarta.persistence.EntityManager;
@@ -118,19 +119,29 @@ public class EquipmentReservationServiceImpl implements EquipmentReservationServ
                     serialize(Map.of("mode", "NONE", "participantCount", request.participantCount())), null);
         }
 
-        var equipmentPackage = request.mode() == EquipmentHoldRequest.Mode.PACKAGE
-                ? packages.findById(request.packageId()).orElseThrow(EquipmentReservationServiceImpl::notFound)
-                : packages.findByTourId(schedule.getTourId()).orElseThrow(EquipmentReservationServiceImpl::notFound);
-        if (!equipmentPackage.getTourId().equals(schedule.getTourId())) {
-            throw conflict("EQUIPMENT_PACKAGE_NOT_AVAILABLE", "Equipment package is not available for this schedule");
-        }
-        if (request.mode() == EquipmentHoldRequest.Mode.PACKAGE
-                && (equipmentPackage.getRentalPriceVnd() == null || equipmentPackage.getRentalPriceVnd() < 0)) {
-            throw conflict("EQUIPMENT_PACKAGE_PRICE_MISSING", "Equipment package rental price is not configured");
+        TourEquipmentPackage equipmentPackage = null;
+        List<TourEquipmentItem> items;
+        if (request.mode() == EquipmentHoldRequest.Mode.PACKAGE) {
+            equipmentPackage = packages.findById(request.packageId()).orElseThrow(EquipmentReservationServiceImpl::notFound);
+            if (!equipmentPackage.getTourId().equals(schedule.getTourId()) || !Boolean.TRUE.equals(equipmentPackage.getActive())) {
+                throw conflict("EQUIPMENT_PACKAGE_NOT_AVAILABLE", "Equipment package is not available for this schedule");
+            }
+            if (equipmentPackage.getRentalPriceVnd() == null || equipmentPackage.getRentalPriceVnd() < 0) {
+                throw conflict("EQUIPMENT_PACKAGE_PRICE_MISSING", "Equipment package rental price is not configured");
+            }
+            items = packageItems.findAllByPackageIdOrderByIdAsc(equipmentPackage.getId());
+            if (items.isEmpty()) throw conflict("EQUIPMENT_PACKAGE_EMPTY", "Equipment package has no equipment items");
+        } else {
+            items = packageItems.findAllByTourIdAndPackageIdIsNullOrderByIdAsc(schedule.getTourId());
+            if (items.isEmpty()) {
+                items = packageItems.findActivePackageItemsByTourIdOrderByIdAsc(schedule.getTourId());
+            }
+            if (items.isEmpty()) {
+                if (!packages.existsByTourIdAndActiveTrue(schedule.getTourId())) throw notFound();
+                throw conflict("EQUIPMENT_PACKAGE_EMPTY", "Equipment package has no equipment items");
+            }
         }
 
-        var items = packageItems.findAllByPackageIdOrderByIdAsc(equipmentPackage.getId());
-        if (items.isEmpty()) throw conflict("EQUIPMENT_PACKAGE_EMPTY", "Equipment package has no equipment items");
         Map<Long, TourEquipmentItem> itemsById = new LinkedHashMap<>();
         items.forEach(item -> itemsById.put(item.getId(), item));
         List<TourEquipmentItem> selectedLines;
@@ -187,8 +198,8 @@ public class EquipmentReservationServiceImpl implements EquipmentReservationServ
         }
         var snapshot = new LinkedHashMap<String, Object>();
         snapshot.put("mode", request.mode().name());
-        snapshot.put("packageId", equipmentPackage.getId());
-        snapshot.put("title", equipmentPackage.getTitle());
+        snapshot.put("packageId", equipmentPackage == null ? null : equipmentPackage.getId());
+        snapshot.put("title", equipmentPackage == null ? "Thuê dụng cụ lẻ" : equipmentPackage.getTitle());
         snapshot.put("participantCount", request.participantCount());
         snapshot.put("packageQuantity", request.packageQuantity());
         if (request.mode() == EquipmentHoldRequest.Mode.PACKAGE) {
@@ -200,7 +211,7 @@ public class EquipmentReservationServiceImpl implements EquipmentReservationServ
         var reservation = new EquipmentReservation();
         reservation.setBookingId(request.bookingId());
         reservation.setScheduleId(schedule.getId());
-        reservation.setPackageId(equipmentPackage.getId());
+        reservation.setPackageId(equipmentPackage == null ? null : equipmentPackage.getId());
         reservation.setSelectionKey(selectionKey);
         reservation.setStatus(HELD);
         reservation.setHoldExpiresAt(request.holdExpiresAt());
