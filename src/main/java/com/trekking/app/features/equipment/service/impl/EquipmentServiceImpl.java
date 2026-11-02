@@ -68,7 +68,9 @@ public class EquipmentServiceImpl implements EquipmentService {
             throw conflict("INVALID_MAINTENANCE_QUANTITY", "Maintenance quantity cannot exceed total quantity");
         }
 
-        EquipmentInventory item = inventory.findByEquipmentIdForUpdate(equipmentId).orElseGet(() -> {
+        var existingInventory = inventory.findByEquipmentIdForUpdate(equipmentId);
+        boolean isNewInventory = existingInventory.isEmpty();
+        EquipmentInventory item = existingInventory.orElseGet(() -> {
             EquipmentInventory created = new EquipmentInventory();
             created.setEquipmentId(equipmentId);
             return created;
@@ -78,10 +80,13 @@ public class EquipmentServiceImpl implements EquipmentService {
             throw conflict("EQUIPMENT_QUANTITY_BELOW_COMMITTED", "Total stock cannot be lower than maintenance and committed quantities");
         }
         item.setCategoryId(category.getId());
+        item.setEquipment(catalogItem);
+        item.setCategory(category);
         item.setTotalQuantity(request.totalQuantity());
         item.setMaintenanceQuantity(request.maintenanceQuantity());
         item.setActive(request.active());
-        return details(inventory.save(item));
+        if (isNewInventory) entities.persist(item);
+        return details(item);
     }
 
     @Override
