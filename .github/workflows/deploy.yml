@@ -62,6 +62,16 @@ jobs:
           printf '%s\n' "$VPS_SSH_KEY" > "$HOME/.ssh/id_ed25519"
           chmod 600 "$HOME/.ssh/id_ed25519"
 
+          echo "=== Checking private key ==="
+
+          ssh-keygen -y -f "$HOME/.ssh/id_ed25519" \
+            > /dev/null || {
+              echo "::error::VPS_SSH_KEY is invalid"
+              exit 1
+            }
+
+          echo "=== PRIVATE KEY VALID ==="
+
           printf '%s\n' "$VPS_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
           chmod 600 "$HOME/.ssh/known_hosts"
 
