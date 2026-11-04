@@ -44,6 +44,24 @@ public class RagController {
         return ResponseEntity.ok(response);
     }
 
+    @Operation(
+            summary     = "Stream answer token-by-token (Server-Sent Events)",
+            description = "Retrieves relevant context and streams the LLM response in real-time."
+    )
+    @GetMapping(value = "/chat/stream", produces = org.springframework.http.MediaType.TEXT_EVENT_STREAM_VALUE)
+    public reactor.core.publisher.Flux<String> chatStreamGet(@RequestParam String question) {
+        return ragService.askStream(question);
+    }
+
+    @Operation(
+            summary     = "Stream answer token-by-token via POST (Server-Sent Events)",
+            description = "Retrieves relevant context and streams the LLM response in real-time."
+    )
+    @PostMapping(value = "/chat/stream", produces = org.springframework.http.MediaType.TEXT_EVENT_STREAM_VALUE)
+    public reactor.core.publisher.Flux<String> chatStreamPost(@Valid @RequestBody ChatRequest request) {
+        return ragService.askStream(request.question());
+    }
+
     // ── Ingestion (Admin-only) ────────────────────────────────────────────────
 
     @Operation(

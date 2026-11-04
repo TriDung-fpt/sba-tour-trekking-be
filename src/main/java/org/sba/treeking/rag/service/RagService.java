@@ -80,6 +80,40 @@ public class RagService {
         return new ChatResponse(answer, sources, sessionId);
     }
 
+    /**
+     * Ask a question and stream tokens back in real-time via Server-Sent Events (SSE).
+     *
+     * @param question user's natural-language question
+     * @return reactive Flux of string tokens
+     */
+    public reactor.core.publisher.Flux<String> askStream(String question) {
+        log.debug("RAG streaming query: '{}'", question);
+
+        // ── 1. Retrieve ────────────────────────────────────────────────────
+        List<Document> relevantDocs = vectorStore.similaritySearch(
+                SearchRequest.builder()
+                        .query(question)
+                        .topK(ragProperties.topK())
+                        .similarityThreshold(ragProperties.similarityThreshold())
+                        .build()
+        );
+
+        if (relevantDocs.isEmpty()) {
+            log.warn("No relevant documents found for streaming query: '{}'", question);
+            return reactor.core.publisher.Flux.just("I'm sorry, I couldn't find any relevant tour information for your question.");
+        }
+
+        // ── 2. Augment ─────────────────────────────────────────────────────
+        String context = buildContext(relevantDocs);
+
+        // ── 3. Stream generated tokens ─────────────────────────────────────
+        return ragChatClient.prompt()
+                .system(sp -> sp.param("context", context))
+                .user(question)
+                .stream()
+                .content();
+    }
+
     // -------------------------------------------------------------------------
     // Private helpers
     // -------------------------------------------------------------------------
