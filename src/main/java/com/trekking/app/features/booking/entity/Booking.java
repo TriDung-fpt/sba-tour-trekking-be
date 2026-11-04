@@ -70,6 +70,10 @@ public class Booking extends TimestampedEntity {
     private String policySnapshot;
 
     @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "refund_rules_snapshot", columnDefinition = "jsonb")
+    private String refundRulesSnapshot;
+
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "equipment_snapshot", nullable = false, columnDefinition = "jsonb")
     private String equipmentSnapshot = "{}";
 

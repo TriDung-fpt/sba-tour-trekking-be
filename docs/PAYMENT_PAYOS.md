@@ -49,4 +49,32 @@ The webhook stores a verified payment and marks it accepted only when amount, at
 
 Apply migration `013_add_payment_checkout_url.sql` after migration 012. Fresh database setup runs the full migration chain after `schema.sql` bootstrap.
 
+## Refund workflow
+
+Apply migration 023 after 022. A booking snapshots the active refund tiers when it is created, so later policy changes only affect new bookings. Configure tiers with `POLICY_MANAGE`:
+
+```http
+POST /api/v1/admin/refund-rules
+Authorization: Bearer <access-token>
+Content-Type: application/json
+
+{"effectiveFrom":"2027-01-01T00:00:00Z","rules":[
+  {"minimumHoursBeforeDeparture":168,"refundPercent":100},
+  {"minimumHoursBeforeDeparture":72,"refundPercent":50},
+  {"minimumHoursBeforeDeparture":0,"refundPercent":0}
+]}
+```
+
+When cancelling a booking, a customer can include a payout destination to request a refund in the same operation. The backend calculates the amount from the booking's saved tiers and accepted payments; the client does not submit an amount:
+
+```json
+{"reason":"Customer cancellation","refundRequest":{
+  "bankBin":"970418","accountNumber":"0123456789","accountHolderName":"NGUYEN VAN A"
+}}
+```
+
+Refund destination fields are AES-GCM encrypted at rest. Set a private 32-byte Base64 key in `REFUND_DATA_ENCRYPTION_KEY` (generate with `openssl rand -base64 32`) and the PayOS payout channel credentials in `PAYOS_PAYOUT_CLIENT_ID`, `PAYOS_PAYOUT_API_KEY`, and `PAYOS_PAYOUT_CHECKSUM_KEY`. Keep these values only in the local/deployment secret store. Refund requests can be listed by staff with `FINANCE_READ`; full destination details and approve/reject actions require `REFUND_APPROVE`. Approval sends the payout to PayOS. A scheduled reconciliation checks in-flight payouts every minute and records terminal success/failure; terminal emails omit bank details.
+
+Customer status is available at `GET /api/v1/bookings/{bookingId}/refund`. Finance endpoints are `GET /api/v1/admin/refunds`, `GET /api/v1/admin/refunds/{refundId}`, and `POST /api/v1/admin/refunds/{refundId}/approve` or `/reject` (reject body: `{"note":"..."}`). PayOS name/account verification is not currently integrated, so staff must verify the destination manually before approving. The full destination is removed from the database after PayOS reports a terminal result.
+
 

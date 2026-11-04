@@ -30,6 +30,8 @@ import com.trekking.app.features.booking.repository.ParticipantRepository;
 import com.trekking.app.features.booking.service.BookingHoldService;
 import com.trekking.app.features.booking.service.BookingService;
 import com.trekking.app.features.equipment.service.EquipmentReservationService;
+import com.trekking.app.features.payment.service.RefundRulesService;
+import com.trekking.app.features.payment.service.RefundService;
 import com.trekking.app.features.equipment.dto.request.EquipmentHoldRequest;
 import com.trekking.app.features.policy.entity.Policy;
 import com.trekking.app.features.policy.entity.PolicyVersion;
@@ -77,10 +79,13 @@ public class BookingServiceImpl implements BookingService {
     private final AuthorizationService authorization;
     private final Clock clock;
     private final EquipmentReservationService equipmentReservations;
+    private final RefundRulesService refundRules;
+    private final RefundService refunds;
 
     public BookingServiceImpl(BookingRepository bookings, ParticipantRepository participants,
                               BookingScheduleRepository schedules, BookingHoldService holds, BookingMapper mapper,
-                              AuthorizationService authorization, Clock clock, EquipmentReservationService equipmentReservations) {
+                              AuthorizationService authorization, Clock clock, EquipmentReservationService equipmentReservations,
+                              RefundRulesService refundRules, RefundService refunds) {
         this.bookings = bookings;
         this.participants = participants;
         this.schedules = schedules;
@@ -89,6 +94,8 @@ public class BookingServiceImpl implements BookingService {
         this.authorization = authorization;
         this.clock = clock;
         this.equipmentReservations = equipmentReservations;
+        this.refundRules = refundRules;
+        this.refunds = refunds;
     }
 
     @Override
@@ -147,6 +154,7 @@ public class BookingServiceImpl implements BookingService {
         booking.setDepositPercent(schedule.getDepositPercent());
         booking.setCancellationPolicyVersionId(policy.getId());
         booking.setPolicySnapshot(mapper.toJson(policySnapshot(policy)));
+        booking.setRefundRulesSnapshot(refundRules.snapshotForBooking(now));
         booking.setEquipmentSnapshot(mapper.toJson(Map.of("choice", request.equipmentChoice().name(), "requestHash", requestHash(request))));
         booking.setHoldExpiresAt(now.plus(HOLD_DURATION));
         booking.setBalanceDueAt(schedule.getBalanceDueAt());
@@ -265,7 +273,7 @@ public class BookingServiceImpl implements BookingService {
     public BookingCancellationResponse cancel(long bookingId, CancelBookingRequest request) {
         long customerId = requireCustomer();
         Booking booking = bookings.findOwnedForUpdate(bookingId, customerId).orElseThrow(BookingException::notFound);
-        if (booking.getStatus() == BookingStatus.CANCELLED) return cancellation(booking);
+        if (booking.getStatus() == BookingStatus.CANCELLED) return cancellation(booking, refunds.forCustomerBooking(bookingId));
         if (booking.getStatus() != BookingStatus.PENDING_PAYMENT && booking.getStatus() != BookingStatus.CONFIRMED) {
             throw new BookingException(BookingErrorCode.INVALID_BOOKING_TRANSITION);
         }
@@ -284,7 +292,8 @@ public class BookingServiceImpl implements BookingService {
         booking.setCancelledBy(customerId);
         equipmentReservations.release(bookingId);
         bookings.flush();
-        return cancellation(booking);
+        var refund = refunds.requestOnCancellation(booking, customerId, request.reason(), request.refundRequest());
+        return cancellation(booking, refund);
     }
 
     @Override
@@ -368,9 +377,16 @@ public class BookingServiceImpl implements BookingService {
     }
 
     private BookingCancellationResponse cancellation(Booking booking) {
+        return cancellation(booking, null);
+    }
+
+    private BookingCancellationResponse cancellation(Booking booking, com.trekking.app.features.payment.dto.response.RefundResponse refund) {
         long id = booking.getId();
-        return mapper.toCancellation(booking,
+        var base = mapper.toCancellation(booking,
                 toLong(bookings.acceptedPaymentTotalVnd(id)), toLong(bookings.refundedTotalVnd(id)));
+        return new BookingCancellationResponse(base.bookingId(), base.bookingCode(), base.status(), base.cancelledAt(),
+                base.cancellationReason(), base.cancelledBy(), base.paidAmountVnd(), base.refundedAmountVnd(),
+                base.refundRequired(), refund);
     }
 
     private Page<BookingSummaryResponse> summaries(Page<Booking> page) {

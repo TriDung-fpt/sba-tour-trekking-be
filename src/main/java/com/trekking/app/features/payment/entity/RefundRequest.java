@@ -55,6 +55,33 @@ public class RefundRequest extends TimestampedEntity {
     @Column(name = "decision_note", columnDefinition = "text")
     private String decisionNote;
 
+    @Column(name = "bank_bin", length = 20)
+    private String bankBin;
+
+    @Column(name = "recipient_name_ciphertext", columnDefinition = "text")
+    private String recipientNameCiphertext;
+
+    @Column(name = "recipient_account_ciphertext", columnDefinition = "text")
+    private String recipientAccountCiphertext;
+
+    @Column(name = "recipient_account_last4", length = 4)
+    private String recipientAccountLast4;
+
+    @Column(name = "recipient_verified", nullable = false)
+    private boolean recipientVerified;
+
+    @Column(name = "payout_reference_id", length = 100)
+    private String payoutReferenceId;
+
+    @Column(name = "payout_id", length = 200)
+    private String payoutId;
+
+    @Column(name = "payout_transaction_reference", length = 200)
+    private String payoutTransactionReference;
+
+    @Column(name = "payout_last_checked_at")
+    private OffsetDateTime payoutLastCheckedAt;
+
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "booking_id", referencedColumnName = "id", insertable = false, updatable = false)
     @Setter(AccessLevel.NONE)

@@ -9,6 +9,9 @@ public class PayOsProperties {
     private String clientId;
     private String apiKey;
     private String checksumKey;
+    private String payoutClientId;
+    private String payoutApiKey;
+    private String payoutChecksumKey;
     private String returnUrl;
     private String cancelUrl;
     private String apiBaseUrl = "https://api-merchant.payos.vn";
@@ -19,6 +22,12 @@ public class PayOsProperties {
     public void setApiKey(String apiKey) { this.apiKey = apiKey; }
     public String getChecksumKey() { return checksumKey; }
     public void setChecksumKey(String checksumKey) { this.checksumKey = checksumKey; }
+    public String getPayoutClientId() { return payoutClientId; }
+    public void setPayoutClientId(String value) { payoutClientId = value; }
+    public String getPayoutApiKey() { return payoutApiKey; }
+    public void setPayoutApiKey(String value) { payoutApiKey = value; }
+    public String getPayoutChecksumKey() { return payoutChecksumKey; }
+    public void setPayoutChecksumKey(String value) { payoutChecksumKey = value; }
     public String getReturnUrl() { return returnUrl; }
     public void setReturnUrl(String returnUrl) { this.returnUrl = returnUrl; }
     public String getCancelUrl() { return cancelUrl; }
@@ -37,6 +46,14 @@ public class PayOsProperties {
             throw new com.trekking.app.core.exception.AuthException(
                     org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE,
                     "PAYMENT_PROVIDER_UNAVAILABLE", "PayOS checksum key must be configured");
+        }
+    }
+
+    public void requirePayoutConfigured() {
+        if (blank(payoutClientId) || blank(payoutApiKey) || blank(payoutChecksumKey)) {
+            throw new com.trekking.app.core.exception.AuthException(
+                    org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE,
+                    "PAYOUT_PROVIDER_UNAVAILABLE", "PayOS payout channel is not configured");
         }
     }
 
