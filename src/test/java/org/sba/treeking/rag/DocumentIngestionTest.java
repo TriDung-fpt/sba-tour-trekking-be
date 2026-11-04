@@ -46,35 +46,50 @@ public class DocumentIngestionTest {
     private RagService ragService;
 
     @Test
-    void testIngestAndSearchRagDocuments() {
-        System.out.println("Starting ingestion of RAG documents...");
-        int chunksIndexed = ingestionService.ingestRagDocuments();
-        System.out.println("Successfully indexed chunks: " + chunksIndexed);
-        assertTrue(chunksIndexed > 0, "At least one chunk should be indexed from RAGdocument");
+    void testIngestAndSearchAllData() {
+        System.out.println("==================================================");
+        System.out.println("Starting full ingestion (DB Tours + Policy PDFs)...");
+        System.out.println("==================================================");
 
-        // Verify similarity search retrieval on policy
-        List<Document> searchResults = vectorStore.similaritySearch(
+        int totalChunks = ingestionService.ingestAll();
+        System.out.println("Successfully indexed total chunks in pgvector: " + totalChunks);
+        assertTrue(totalChunks > 0, "At least one chunk should be indexed");
+
+        // 1. Verify similarity search on Database Tours (e.g., Fansipan or Tà Xùa)
+        System.out.println("\n--- Testing similarity search for Tour: 'Tour Fansipan giá bao nhiêu?' ---");
+        List<Document> tourResults = vectorStore.similaritySearch(
                 SearchRequest.builder()
-                        .query("Quy định thuê thiết bị trekking và đặt cọc")
+                        .query("Tour trekking Fansipan giá bao nhiêu và đi mấy ngày?")
                         .topK(3)
                         .similarityThreshold(0.2)
                         .build()
         );
 
-        System.out.println("Similarity search returned " + searchResults.size() + " chunk(s):");
-        for (Document doc : searchResults) {
-            System.out.println("Title: " + doc.getMetadata().get("title"));
-            System.out.println("Source: " + doc.getMetadata().get("source"));
-            System.out.println("Excerpt: " + doc.getText().substring(0, Math.min(150, doc.getText().length())) + "...");
+        System.out.println("Found " + tourResults.size() + " relevant tour chunk(s):");
+        for (Document doc : tourResults) {
+            System.out.println(" -> Title: " + doc.getMetadata().get("title"));
+            System.out.println("    Source: " + doc.getMetadata().get("source"));
+            System.out.println("    Locations: " + doc.getMetadata().get("locations"));
+            System.out.println("    Excerpt: " + doc.getText().substring(0, Math.min(180, doc.getText().length())) + "...");
         }
-        assertFalse(searchResults.isEmpty(), "Should retrieve chunks from the embedded policy document");
+        assertFalse(tourResults.isEmpty(), "Should retrieve tour chunks from the database");
 
-        // Verify RAG chat query
-        ChatResponse chatResponse = ragService.ask("Chính sách thuê thiết bị trekking quy định như thế nào?", "test-session");
-        System.out.println("AI Answer: " + chatResponse.answer());
-        System.out.println("Sources count: " + chatResponse.sources().size());
+        // 2. Verify RAG Question-Answering on Database Tour
+        System.out.println("\n--- Testing RAG LLM Generation for Database Tour ---");
+        ChatResponse chatResponse = ragService.ask("Bên bạn có tour trekking nào ở Lào Cai hoặc Fansipan không? Giá và lịch trình thế nào?", "test-session-tour");
+        System.out.println("\nAI Answer:\n" + chatResponse.answer());
+        System.out.println("\nSources cited: " + chatResponse.sources().size());
         for (var source : chatResponse.sources()) {
-            System.out.println("Source: " + source.title() + " (score=" + source.score() + ")");
+            System.out.println(" -> " + source.title() + " (relevance score: " + source.score() + ")");
+        }
+
+        // 3. Verify RAG Question-Answering on Policy Document
+        System.out.println("\n--- Testing RAG LLM Generation for Policy Document ---");
+        ChatResponse policyResponse = ragService.ask("Chính sách hủy tour và hoàn tiền như thế nào nếu tôi bận việc đột xuất?", "test-session-policy");
+        System.out.println("\nAI Policy Answer:\n" + policyResponse.answer());
+        System.out.println("\nSources cited: " + policyResponse.sources().size());
+        for (var source : policyResponse.sources()) {
+            System.out.println(" -> " + source.title() + " (relevance score: " + source.score() + ")");
         }
     }
 }

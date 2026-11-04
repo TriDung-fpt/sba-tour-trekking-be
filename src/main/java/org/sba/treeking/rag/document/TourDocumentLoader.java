@@ -52,7 +52,7 @@ public class TourDocumentLoader {
                 LIMIT 1
             ) ts ON true
             LEFT JOIN LATERAL (
-                SELECT string_agg(l.name || ' (' || l.province || ')', ', ' ORDER BY tl.stop_order) AS locations_summary
+                SELECT string_agg(l.name || CASE WHEN l.province_name IS NOT NULL THEN ' (' || l.province_name || ')' ELSE '' END, ', ' ORDER BY tl.visit_order) AS locations_summary
                 FROM trekking.tour_locations tl
                 JOIN trekking.locations l ON l.id = tl.location_id
                 WHERE tl.tour_id = t.id
