@@ -7,28 +7,47 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+
     steps:
       - name: Setup SSH
         env:
           SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
           KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
         run: |
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
-          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
-          chmod 600 ~/.ssh/known_hosts
+          set -eu
 
-      - name: Connect to VPS
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/id_ed25519"
+          chmod 600 "$HOME/.ssh/id_ed25519"
+
+          printf '%s\n' "$KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+          echo "Checking known_hosts fingerprint:"
+          ssh-keygen -lf "$HOME/.ssh/known_hosts"
+
+          echo "Checking VPS host entry:"
+          ssh-keygen -F 163.223.9.251 \
+            -f "$HOME/.ssh/known_hosts"
+
+      - name: Test SSH
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USER: ${{ secrets.VPS_USER }}
         run: |
-          ssh -i ~/.ssh/id_ed25519 \
-            -o IdentitiesOnly=yes \
+          set -eu
+
+          test -n "$VPS_HOST"
+          test -n "$VPS_USER"
+
+          ssh \
+            -i "$HOME/.ssh/id_ed25519" \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
             -o StrictHostKeyChecking=yes \
+            -o IdentitiesOnly=yes \
             -o BatchMode=yes \
             -o ConnectTimeout=10 \
-            "$VPS_USER@$VPS_HOST" \
+            "${VPS_USER}@${VPS_HOST}" \
             "whoami && hostname && docker ps"
