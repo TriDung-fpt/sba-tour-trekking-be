@@ -9,12 +9,21 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Setup SSH
+      - name: Configure SSH and verify host
         env:
           SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
           KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
         run: |
           set -eu
+
+          echo "SSH TEST VERSION 3"
+
+          test -n "$SSH_KEY" || { echo "Missing VPS_SSH_KEY"; exit 1; }
+          test -n "$KNOWN_HOSTS" || { echo "Missing VPS_KNOWN_HOSTS"; exit 1; }
+          test -n "$VPS_HOST" || { echo "Missing VPS_HOST"; exit 1; }
+          test -n "$VPS_USER" || { echo "Missing VPS_USER"; exit 1; }
 
           mkdir -p "$HOME/.ssh"
           chmod 700 "$HOME/.ssh"
@@ -25,25 +34,20 @@ jobs:
           printf '%s\n' "$KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
           chmod 600 "$HOME/.ssh/known_hosts"
 
-          echo "Checking known_hosts fingerprint:"
+          echo "Known hosts fingerprint:"
           ssh-keygen -lf "$HOME/.ssh/known_hosts"
 
-          echo "Checking VPS host entry:"
-          ssh-keygen -F 163.223.9.251 \
-            -f "$HOME/.ssh/known_hosts"
+          echo "Checking host entry:"
+          ssh-keygen -F "$VPS_HOST" -f "$HOME/.ssh/known_hosts" \
+            >/dev/null || {
+              echo "Host entry not found in known_hosts"
+              exit 1
+            }
 
-      - name: Test SSH
-        env:
-          VPS_HOST: ${{ secrets.VPS_HOST }}
-          VPS_USER: ${{ secrets.VPS_USER }}
-        run: |
-          set -eu
+          echo "Host entry found."
 
-          test -n "$VPS_HOST"
-          test -n "$VPS_USER"
-
-          ssh \
-            -i "$HOME/.ssh/id_ed25519" \
+          echo "Testing SSH..."
+          ssh -i "$HOME/.ssh/id_ed25519" \
             -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
             -o StrictHostKeyChecking=yes \
             -o IdentitiesOnly=yes \
