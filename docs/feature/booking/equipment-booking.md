@@ -27,3 +27,21 @@ Tạo booking, giữ ghế và giữ kho nằm trong cùng transaction. Nếu th
 Migration `022_booking_equipment_pricing.sql` bỏ cột phiên bản giá và áp dụng công thức chung cho booking: giá tour theo số khách cộng phí thiết bị một lần cho toàn booking.
 
 Mỗi khách chỉ được có một hold `PENDING_PAYMENT` còn hạn tại một thời điểm. FE có thể kiểm tra trước qua `GET /api/v1/bookings/my/active-holds` (trả danh sách `BookingSummaryResponse`, rỗng nếu không có hold). Nếu `POST /api/v1/bookings` gặp hold đang hiệu lực, API trả `409` với `code: ACTIVE_BOOKING_HOLD_EXISTS` và `activeHolds` chứa các booking cần tiếp tục thanh toán. Việc kiểm tra được khóa theo khách hàng để ngăn request đồng thời từ nhiều tab tạo nhiều hold.
+
+## Guide giao và thu hồi thiết bị
+
+Guide được phân công đúng lịch đọc thiết bị theo từng booking bằng `GET /api/v1/bookings/{bookingId}/equipment/reservation`. Khi bàn giao, guide gọi `POST /api/v1/bookings/{bookingId}/equipment/issue` với số lượng thực giao. Cuối hành trình, guide gọi `POST /api/v1/bookings/{bookingId}/equipment/return` để ghi nhận số lượng thực thu hồi và tình trạng của từng món, ví dụ:
+
+```json
+{
+  "note": "Đã kiểm kê cuối chuyến",
+  "items": [
+    {"equipmentId": 89, "quantity": 1, "condition": "GOOD"},
+    {"equipmentId": 90, "quantity": 1, "condition": "NEEDS_INSPECTION"}
+  ]
+}
+```
+
+Mỗi lần trả ghi lại người thao tác, thời gian và số lượng; có thể thu hồi nhiều lần. Khi còn thiết bị chưa trả, trạng thái là `return_required`; khi số lượng đã giao được trả đủ, trạng thái là `returned`. Thiết bị `NEEDS_INSPECTION` được cộng vào số lượng cần bảo trì. Hệ thống từ chối số lượng trả vượt số đã giao. Admin có quyền quản lý tour vẫn có thể thực hiện thao tác này.
+
+Việc trả là bước vận hành cuối hành trình; API hiện chưa kiểm tra chuyến đã kết thúc vì chưa có thao tác kết thúc chuyến trong backend. Không dùng giờ kết thúc dự kiến làm điều kiện khóa vì chuyến có thể kết thúc sớm hoặc muộn.

@@ -2,6 +2,7 @@ package com.trekking.app.features.account.service.impl;
 
 import com.trekking.app.features.account.service.AccountAdministrationService;
 import com.trekking.app.features.account.dto.response.AdminAccountResponse;
+import com.trekking.app.features.account.dto.response.GuideOptionResponse;
 
 import com.trekking.app.core.exception.AuthException;
 import com.trekking.app.core.security.authorization.AuthorizationService;
@@ -12,6 +13,7 @@ import com.trekking.app.features.account.entity.AppAccount;
 import com.trekking.app.features.account.enums.AccountStatus;
 import com.trekking.app.features.account.enums.RoleType;
 import com.trekking.app.features.account.repository.AccountRoleRepository;
+import com.trekking.app.features.account.repository.GuideRepository;
 import com.trekking.app.features.account.repository.AppAccountRepository;
 import com.trekking.app.features.account.service.audit.AccountAuditState;
 import com.trekking.app.features.account.service.audit.AuditWriter;
@@ -34,14 +36,25 @@ public class AccountAdministrationServiceImpl implements AccountAdministrationSe
     private final AuthorizationService authorization;
     private final AuditWriter audits;
     private final EntityManager entities;
+    private final GuideRepository guides;
 
     public AccountAdministrationServiceImpl(AppAccountRepository accounts, AccountRoleRepository roles,
-                                        AuthorizationService authorization, AuditWriter audits, EntityManager entities) {
+                                        AuthorizationService authorization, AuditWriter audits, EntityManager entities,
+                                        GuideRepository guides) {
         this.accounts = accounts;
         this.roles = roles;
         this.authorization = authorization;
         this.audits = audits;
         this.entities = entities;
+        this.guides = guides;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<GuideOptionResponse> listGuides() {
+        authorization.require(Permission.GUIDE_MANAGE);
+        return guides.findActiveGuides().stream().map(g -> new GuideOptionResponse(g.getId(), g.getAccountId(),
+                g.getAccount().getFullName(), g.getAccount().getEmail(), g.getAccount().getPhone())).toList();
     }
 
     @Transactional(readOnly = true)

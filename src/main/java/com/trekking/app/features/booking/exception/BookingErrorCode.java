@@ -14,6 +14,7 @@ public enum BookingErrorCode {
     BOOKING_HOLD_EXPIRED(HttpStatus.CONFLICT, "Booking hold has expired"),
     BOOKING_NOT_EDITABLE(HttpStatus.CONFLICT, "Booking can no longer be changed"),
     INVALID_BOOKING_TRANSITION(HttpStatus.CONFLICT, "Booking cannot move to the requested status"),
+    PARTICIPANT_NOT_CHECKED_IN(HttpStatus.CONFLICT, "Participant must be checked in before check-out"),
     EQUIPMENT_PACKAGE_NOT_AVAILABLE(HttpStatus.CONFLICT, "Equipment package is not available for this schedule"),
     INVALID_EQUIPMENT_SELECTION(HttpStatus.BAD_REQUEST, "Equipment selections do not match the requested equipment choice"),
     EQUIPMENT_SERVICE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "Equipment service is temporarily unavailable"),

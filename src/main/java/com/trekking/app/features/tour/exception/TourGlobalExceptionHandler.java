@@ -1,6 +1,7 @@
 package com.trekking.app.features.tour.exception;
 
 import com.trekking.app.core.exception.ApiError;
+import com.trekking.app.features.booking.exception.BookingException;
 import com.trekking.app.features.tour.controller.TourController;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
@@ -27,6 +28,11 @@ import tools.jackson.databind.exc.MismatchedInputException;
 @Order(Ordered.HIGHEST_PRECEDENCE)
 @RestControllerAdvice(basePackageClasses = TourController.class)
 public class TourGlobalExceptionHandler {
+    @ExceptionHandler(BookingException.class)
+    ResponseEntity<ApiError> booking(BookingException ex) {
+        return ResponseEntity.status(ex.getStatus()).body(new ApiError(ex.getCode(), ex.getMessage()));
+    }
+
     @ExceptionHandler(TourException.class)
     ResponseEntity<ApiError> tour(TourException ex) {
         return ResponseEntity.status(ex.getStatus())

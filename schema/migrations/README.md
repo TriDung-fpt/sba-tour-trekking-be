@@ -33,6 +33,9 @@ Repository dùng SQL migration theo thứ tự; chưa dùng Flyway. Không sửa
 | 020 | [020](020_tour_schedule_defaults.sql) | Thông tin mặc định của lịch khi chưa chốt ngày khởi hành. |
 | 021 | [021](021_multiple_tour_equipment_packages_and_items.sql) | Cho phép tour gắn nhiều combo và nhiều thiết bị lẻ, bảo toàn dữ liệu cũ và lịch sử giữ/giao/trả. |
 | 022 | [022](022_booking_equipment_pricing.sql) | Tính giá tour theo số khách, cộng phí thiết bị một lần cho toàn booking; bỏ cột phiên bản giá. |
+| 024 | [024](024_tour_participant_checkouts.sql) | Ghi nhận một lần guide kiểm đếm khách cuối chuyến, không sửa bảng participants. |
+
+Compose và Testcontainers áp dụng migration 024 sau 022. Với database đã khởi tạo, áp dụng riêng 024 sau khi xác nhận 022 đã chạy; init scripts không chạy lại trên volume cũ.
 
 Database mới chạy bootstrap → 001 → 002 → 003 → 004 → 005 → 006 → 007 → 008 → 009 → 010 → 011 → 012 → 013 → 014 → 015 qua Compose/Testcontainers.
 Database đã có 012 áp dụng 013 rồi 014. Các phiên bản cũ hơn chạy tiếp các file còn thiếu theo thứ tự. Volume Docker cũ không chạy lại init scripts. Dừng writer, kiểm tra backup và phiên bản trước khi chạy từng SQL với ON_ERROR_STOP; không replay script đã áp dụng hoặc reset volume.

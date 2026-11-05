@@ -24,6 +24,7 @@ public class AdminAccountController {
     @GetMapping("/{id}")
     public AdminAccountResponse get(@PathVariable Long id) { return service.get(id); }
 
+
     @PostMapping("/{id}/block")
     public AdminAccountResponse block(@PathVariable Long id,
                                        @Valid @RequestBody AccountAdministrationRequests.Reason request) {
