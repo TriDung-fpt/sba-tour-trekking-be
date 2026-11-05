@@ -346,7 +346,7 @@ CREATE TABLE bookings (
     base_price_vnd BIGINT NOT NULL CHECK (base_price_vnd BETWEEN 0 AND 1000000000000),
     equipment_fee_vnd BIGINT NOT NULL CHECK (equipment_fee_vnd BETWEEN 0 AND 1000000000000),
     total_price_vnd BIGINT GENERATED ALWAYS AS
-      (participant_count::BIGINT * (base_price_vnd + equipment_fee_vnd)) STORED,
+      (participant_count::BIGINT * base_price_vnd + equipment_fee_vnd) STORED,
     deposit_percent NUMERIC(5,2) NOT NULL CHECK (deposit_percent > 0 AND deposit_percent <= 100),
     platform_fee_percent NUMERIC(5,2) NOT NULL DEFAULT 10.00 CHECK (platform_fee_percent BETWEEN 0 AND 100),
     cancellation_policy_version_id BIGINT NOT NULL REFERENCES policy_versions(id),
@@ -821,20 +821,24 @@ CREATE TRIGGER trg_tour_answers_updated BEFORE UPDATE ON tour_answers FOR EACH R
 -- Gia/chinh sach da co tien thu khong duoc ghi de.
 CREATE FUNCTION guard_booking_snapshot() RETURNS TRIGGER LANGUAGE plpgsql SET search_path = trekking, pg_temp AS $$
 BEGIN
-    IF OLD.price_locked_at IS NOT NULL AND ROW(
-        NEW.customer_id, NEW.schedule_id, NEW.company_id, NEW.participant_count,
-        NEW.includes_equipment, NEW.base_price_vnd, NEW.equipment_fee_vnd,
-        NEW.deposit_percent, NEW.platform_fee_percent, NEW.cancellation_policy_version_id,
-        NEW.company_agreement_id, NEW.policy_snapshot, NEW.equipment_snapshot,
-        NEW.balance_due_at, NEW.price_locked_at
-    ) IS DISTINCT FROM ROW(
-        OLD.customer_id, OLD.schedule_id, OLD.company_id, OLD.participant_count,
-        OLD.includes_equipment, OLD.base_price_vnd, OLD.equipment_fee_vnd,
-        OLD.deposit_percent, OLD.platform_fee_percent, OLD.cancellation_policy_version_id,
-        OLD.company_agreement_id, OLD.policy_snapshot, OLD.equipment_snapshot,
-        OLD.balance_due_at, OLD.price_locked_at
-    ) THEN
-        RAISE EXCEPTION 'Booking da co tien thu: khong duoc doi gia, lich, so nguoi, chinh sach';
+    IF OLD.price_locked_at IS NOT NULL THEN
+        IF ROW(
+            NEW.customer_id, NEW.schedule_id, NEW.company_id, NEW.participant_count,
+            NEW.includes_equipment, NEW.base_price_vnd, NEW.equipment_fee_vnd,
+            NEW.deposit_percent, NEW.platform_fee_percent, NEW.cancellation_policy_version_id,
+            NEW.company_agreement_id, NEW.policy_snapshot, NEW.equipment_snapshot,
+            NEW.balance_due_at
+        ) IS DISTINCT FROM ROW(
+            OLD.customer_id, OLD.schedule_id, OLD.company_id, OLD.participant_count,
+            OLD.includes_equipment, OLD.base_price_vnd, OLD.equipment_fee_vnd,
+            OLD.deposit_percent, OLD.platform_fee_percent, OLD.cancellation_policy_version_id,
+            OLD.company_agreement_id, OLD.policy_snapshot, OLD.equipment_snapshot,
+            OLD.balance_due_at
+        ) THEN
+            RAISE EXCEPTION 'Booking da co tien thu: khong duoc doi gia, lich, so nguoi, chinh sach';
+        END IF;
+
+        NEW.price_locked_at := OLD.price_locked_at;
     END IF;
     RETURN NEW;
 END;

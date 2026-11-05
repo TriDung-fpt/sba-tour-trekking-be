@@ -63,12 +63,31 @@ class TourCrudTests {
     private TourScheduleRepository schedules;
     private MockMvc mvc;
 
+    @Test
+    void latestScheduleReturnsMostRecentlyEditedScheduleOrNoContent() throws Exception {
+        when(tours.findById(1L)).thenReturn(Optional.of(new Tour()));
+        var schedule = new TourSchedule();
+        schedule.setCapacity(18);
+        schedule.setBasePriceVnd(2500000L);
+        when(schedules.findFirstByTourIdOrderByDetailsUpdatedAtDescIdDesc(1L)).thenReturn(Optional.of(schedule));
+        mvc.perform(get(SCHEDULES + "/latest")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.capacity").value(18));
+        when(schedules.findFirstByTourIdOrderByDetailsUpdatedAtDescIdDesc(1L)).thenReturn(Optional.empty());
+        mvc.perform(get(SCHEDULES + "/latest")).andExpect(status().isNoContent());
+    }
+
     @BeforeEach
     void setup() {
         tours = mock(TourRepository.class);
         media = mock(TourMediaRepository.class);
         schedules = mock(TourScheduleRepository.class);
-        var service = new TourServiceImpl(tours, media, schedules, Mappers.getMapper(TourMapper.class));
+        var service = new TourServiceImpl(tours, media, schedules, mock(com.trekking.app.features.tour.repository.TourScheduleDefaultsRepository.class), Mappers.getMapper(TourMapper.class),
+                mock(com.trekking.app.features.tour.mapper.TourActivityMapper.class),
+                mock(com.trekking.app.features.tour.repository.TourActivityRepository.class),
+                mock(com.trekking.app.features.tour.repository.TourItineraryDayRepository.class),
+                mock(com.trekking.app.features.tour.repository.TourTermRepository.class),
+                mock(com.trekking.app.features.policy.repository.PolicyVersionRepository.class),
+                java.time.Clock.systemUTC(), mock(PolicyService.class), mock(com.trekking.app.core.security.authorization.AuthorizationService.class));
         var jsonConverter = new JacksonJsonHttpMessageConverter(JsonMapper.builder()
                 .addModule(new SpringDataJackson3Configuration.PageModule(null)).build());
         mvc = MockMvcBuilders.standaloneSetup(new TourController(service), new TourScheduleController(service))
@@ -87,11 +106,13 @@ class TourCrudTests {
     }
 
     @Test
-    void uploadedImagesMustBeRemovedBeforeDeletingTour() throws Exception {
-        when(tours.findLockedById(1)).thenReturn(Optional.of(new Tour()));
+    void softDeletionRetainsUploadedImages() throws Exception {
+        var tour = new Tour();
+        when(tours.findLockedById(1)).thenReturn(Optional.of(tour));
         when(media.existsByTourIdAndStorageKeyIsNotNull(1)).thenReturn(true);
         mvc.perform(delete(TOURS + "/1"))
-                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("TOUR_HAS_MEDIA"));
+                .andExpect(status().isNoContent());
+        assertThat(tour.getStatus()).isEqualTo(TourStatus.ARCHIVED);
         verify(tours, never()).delete(any(Tour.class));
     }
 
@@ -132,10 +153,7 @@ class TourCrudTests {
                 {"title":"Updated tour","status":"PUBLISHED"}
                 """))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("TOUR_CANNOT_BE_PUBLISHED"))
-                .andExpect(jsonPath("$.fieldErrors.reviewedBy").exists())
-                .andExpect(jsonPath("$.fieldErrors.reviewedAt").exists())
-                .andExpect(jsonPath("$.fieldErrors.cancellationPolicyVersionId").exists());
+                .andExpect(jsonPath("$.code").value("CANCELLATION_POLICY_UNAVAILABLE"));
         assertThat(tour.getStatus()).isEqualTo(TourStatus.DRAFT);
         assertThat(tour.getTitle()).isEqualTo("Original tour");
 
@@ -145,9 +163,7 @@ class TourCrudTests {
                 {"title":"Updated tour","status":"PUBLISHED"}
                 """))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.fieldErrors.reviewedBy").doesNotExist())
-                .andExpect(jsonPath("$.fieldErrors.reviewedAt").doesNotExist())
-                .andExpect(jsonPath("$.fieldErrors.cancellationPolicyVersionId").exists());
+                .andExpect(jsonPath("$.code").value("CANCELLATION_POLICY_UNAVAILABLE"));
         verify(tours, never()).saveAndFlush(any());
     }
 
@@ -157,7 +173,8 @@ class TourCrudTests {
         ReflectionTestUtils.setField(tour, "id", 1L);
         tour.setTitle("Ta Nang");
         tour.setDescription("Full tour description");
-        when(tours.findAll(any(Pageable.class))).thenReturn(new PageImpl<>(List.of(tour)));
+        when(tours.findAll(any(org.springframework.data.jpa.domain.Specification.class), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(tour)));
         when(tours.findById(1L)).thenReturn(Optional.of(tour));
 
         mvc.perform(get(TOURS).principal(admin()))
@@ -298,15 +315,17 @@ class TourCrudTests {
     }
 
     @Test
-    void blocksTourDeletionUntilItsSchedulesAreRemoved() throws Exception {
+    void softDeletionRetainsSchedulesAndIsRepeatable() throws Exception {
         var tour = new Tour();
         when(tours.findLockedById(1)).thenReturn(Optional.of(tour));
         when(schedules.existsByTourId(1)).thenReturn(true);
-        mvc.perform(delete(TOURS + "/1")).andExpect(status().isConflict());
+        mvc.perform(delete(TOURS + "/1")).andExpect(status().isNoContent());
+        assertThat(tour.getStatus()).isEqualTo(TourStatus.ARCHIVED);
         verify(tours, never()).delete(any(Tour.class));
         when(schedules.existsByTourId(1)).thenReturn(false);
         mvc.perform(delete(TOURS + "/1")).andExpect(status().isNoContent());
-        verify(tours).delete(tour);
+        verify(tours, never()).delete(tour);
+        verify(schedules, never()).delete(any(TourSchedule.class));
     }
 
     @Test
@@ -379,7 +398,7 @@ class TourCrudTests {
     void tourAdviceDoesNotHandleOtherModuleControllers() throws Exception {
         var policies = mock(PolicyService.class);
         when(policies.read(1L)).thenThrow(new DataAccessResourceFailureException("private connection details"));
-        var otherMvc = MockMvcBuilders.standaloneSetup(new PolicyController(policies))
+        var otherMvc = MockMvcBuilders.standaloneSetup(new PolicyController(policies, mock(com.trekking.app.features.policy.service.PolicyDocumentService.class)))
                 .setControllerAdvice(new TourGlobalExceptionHandler(), new GlobalExceptionHandler()).build();
 
         otherMvc.perform(get("/api/v1/admin/policies/1")).andExpect(status().isServiceUnavailable())

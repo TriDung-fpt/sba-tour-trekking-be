@@ -1,5 +1,24 @@
 package com.trekking.app.features.tour.service.impl;
 
+import com.trekking.app.features.tour.dto.request.SaveItineraryRequest;
+import com.trekking.app.features.tour.dto.request.SaveTourTermsRequest;
+import com.trekking.app.features.tour.dto.response.ItineraryDayResponse;
+import com.trekking.app.features.tour.dto.response.TourTermResponse;
+import com.trekking.app.features.tour.entity.TourActivity;
+import com.trekking.app.features.tour.entity.TourItineraryDay;
+import com.trekking.app.features.tour.entity.TourTerm;
+import com.trekking.app.features.tour.mapper.TourActivityMapper;
+import com.trekking.app.features.tour.repository.TourActivityRepository;
+import com.trekking.app.features.tour.repository.TourItineraryDayRepository;
+import com.trekking.app.features.tour.repository.TourTermRepository;
+import com.trekking.app.features.policy.repository.PolicyVersionRepository;
+import com.trekking.app.features.policy.enums.PolicyKind;
+import java.time.Clock;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.TreeMap;
 import com.trekking.app.features.tour.exception.TourException;
 import com.trekking.app.features.tour.dto.request.CreateScheduleRequest;
 import com.trekking.app.features.tour.dto.request.CreateTourRequest;
@@ -19,6 +38,10 @@ import com.trekking.app.features.tour.mapper.TourMapper;
 import com.trekking.app.features.tour.repository.TourRepository;
 import com.trekking.app.features.tour.repository.TourMediaRepository;
 import com.trekking.app.features.tour.repository.TourScheduleRepository;
+import com.trekking.app.features.tour.repository.TourScheduleDefaultsRepository;
+import com.trekking.app.features.tour.entity.TourScheduleDefaults;
+import com.trekking.app.features.tour.dto.request.SaveScheduleDefaultsRequest;
+import com.trekking.app.features.tour.dto.response.ScheduleDefaultsResponse;
 import com.trekking.app.features.tour.service.TourService;
 import java.time.OffsetDateTime;
 import java.util.LinkedHashMap;
@@ -39,13 +62,41 @@ public class TourServiceImpl implements TourService {
     private final TourRepository tours;
     private final TourMediaRepository media;
     private final TourScheduleRepository schedules;
+    private final TourScheduleDefaultsRepository scheduleDefaults;
     private final TourMapper mapper;
+    private final TourActivityMapper activityMapper;
+    private final TourActivityRepository activities;
+    private final TourItineraryDayRepository days;
+    private final TourTermRepository terms;
+    private final PolicyVersionRepository versions;
+    private final Clock clock;
+    private final com.trekking.app.features.policy.service.PolicyService policyService;
+    private final com.trekking.app.core.security.authorization.AuthorizationService authorization;
 
-    public TourServiceImpl(TourRepository tours, TourMediaRepository media, TourScheduleRepository schedules, TourMapper mapper) {
+    public TourServiceImpl(TourRepository tours, TourMediaRepository media, TourScheduleRepository schedules, TourScheduleDefaultsRepository scheduleDefaults, TourMapper mapper, TourActivityMapper activityMapper, TourActivityRepository activities, TourItineraryDayRepository days, TourTermRepository terms, PolicyVersionRepository versions, Clock clock,
+                           com.trekking.app.features.policy.service.PolicyService policyService,
+                           com.trekking.app.core.security.authorization.AuthorizationService authorization) {
         this.tours = tours;
         this.media = media;
         this.schedules = schedules;
+        this.scheduleDefaults = scheduleDefaults;
         this.mapper = mapper;
+        this.activityMapper = activityMapper;
+        this.activities = activities;
+        this.days = days;
+        this.terms = terms;
+        this.versions = versions;
+        this.clock = clock;
+        this.policyService = policyService;
+        this.authorization = authorization;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public java.util.List<com.trekking.app.features.tour.dto.response.TourScheduleRangeResponse> listSchedulesInRange(OffsetDateTime start, OffsetDateTime end) {
+        if (!end.isAfter(start)) throw new TourException(HttpStatus.BAD_REQUEST, "INVALID_SCHEDULE_DATES", "End must be after start");
+        return schedules.findOverlappingSchedules(start, end).stream().map(s -> new com.trekking.app.features.tour.dto.response.TourScheduleRangeResponse(
+                s.getId(), s.getTourId(), s.getTour().getTitle(), s.getStartsAt(), s.getEndsAt(), s.getStatus(), s.getTour().getStatus())).toList();
     }
 
     @Override
@@ -57,7 +108,7 @@ public class TourServiceImpl implements TourService {
     @Override
     @Transactional(readOnly = true)
     public Page<TourSummaryResponse> list(int page, int size) {
-        return summaries(tours.findAll(pageRequest(page, size)));
+        return list(null, null, null, null, page, size);
     }
 
     @Override
@@ -70,6 +121,7 @@ public class TourServiceImpl implements TourService {
                     Map.of("durationDays", "Must be positive"));
         }
         Specification<Tour> filter = (root, q, cb) -> cb.conjunction();
+        if (status == null) filter = filter.and((root, q, cb) -> cb.notEqual(root.get("status"), TourStatus.ARCHIVED));
         if (query != null && !query.isBlank()) {
             var term = query.trim().toLowerCase(Locale.ROOT).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
             filter = filter.and((root, q, cb) -> cb.like(cb.lower(root.get("title")), "%" + term + "%", '\\'));
@@ -109,6 +161,18 @@ public class TourServiceImpl implements TourService {
     @Override
     public TourDetailResponse update(long tourId, UpdateTourRequest request) {
         var tour = tours.findLockedById(tourId).orElseThrow(() -> notFound("Tour"));
+        if (request.cancellationPolicyVersionId() != null) {
+            policyService.requireEffectiveCancellationVersion(request.cancellationPolicyVersionId());
+            tour.setCancellationPolicyVersionId(request.cancellationPolicyVersionId());
+        }
+        if (request.status() == TourStatus.PUBLISHED && tour.getStatus() != TourStatus.PUBLISHED) {
+            if (tour.getCancellationPolicyVersionId() == null) {
+                throw new TourException(HttpStatus.CONFLICT, "CANCELLATION_POLICY_UNAVAILABLE", "Select a cancellation policy before publishing");
+            }
+            policyService.requireEffectiveCancellationVersion(tour.getCancellationPolicyVersionId());
+            tour.setReviewedBy(authorization.currentAccountId());
+            tour.setReviewedAt(OffsetDateTime.now());
+        }
         validatePublication(tour, request.status() == null ? tour.getStatus() : request.status());
         mapper.updateTour(request, tour);
         if (request.status() != null) {
@@ -120,18 +184,8 @@ public class TourServiceImpl implements TourService {
     @Override
     public void delete(long tourId) {
         var tour = tours.findLockedById(tourId).orElseThrow(() -> notFound("Tour"));
-        if (tour.getStatus() != TourStatus.DRAFT || schedules.existsByTourId(tourId)) {
-            throw conflict("TOUR_NOT_DELETABLE", "Only draft tours without schedules can be deleted");
-        }
-        if (media.existsByTourIdAndStorageKeyIsNotNull(tourId)) {
-            throw conflict("TOUR_HAS_MEDIA", "Delete uploaded tour images before deleting the tour");
-        }
-        try {
-            tours.delete(tour);
-            tours.flush();
-        } catch (DataIntegrityViolationException ex) {
-            throw conflict("TOUR_IN_USE", "Tour is referenced by other records and cannot be deleted");
-        }
+        tour.setStatus(TourStatus.ARCHIVED);
+        tours.saveAndFlush(tour);
     }
 
     @Override
@@ -142,6 +196,38 @@ public class TourServiceImpl implements TourService {
         var schedule = mapper.toSchedule(request);
         schedule.setTourId(tourId);
         return mapper.toDetailResponse(schedules.saveAndFlush(schedule));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public java.util.Optional<ScheduleDefaultsResponse> readScheduleDefaults(long tourId) {
+        authorization.require(com.trekking.app.core.security.authorization.Permission.SCHEDULE_MANAGE);
+        requireTour(tourId);
+        return scheduleDefaults.findById(tourId).map(TourServiceImpl::scheduleDefaultsResponse);
+    }
+
+    @Override
+    public ScheduleDefaultsResponse saveScheduleDefaults(long tourId, SaveScheduleDefaultsRequest request) {
+        authorization.require(com.trekking.app.core.security.authorization.Permission.SCHEDULE_MANAGE);
+        tours.findLockedById(tourId).orElseThrow(() -> notFound("Tour"));
+        var value = scheduleDefaults.findById(tourId).orElseGet(TourScheduleDefaults::new);
+        value.setTourId(tourId); value.setCapacity(request.capacity()); value.setBasePriceVnd(request.basePriceVnd());
+        value.setEquipmentFeeVnd(request.equipmentFeeVnd()); value.setDepositPercent(request.depositPercent());
+        value.setMeetingPoint(request.meetingPoint()); value.setContactPhone(request.contactPhone());
+        return scheduleDefaultsResponse(scheduleDefaults.saveAndFlush(value));
+    }
+
+    private static ScheduleDefaultsResponse scheduleDefaultsResponse(TourScheduleDefaults value) {
+        return new ScheduleDefaultsResponse(value.getCapacity(), value.getBasePriceVnd(), value.getEquipmentFeeVnd(),
+                value.getDepositPercent(), value.getMeetingPoint(), value.getContactPhone());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public java.util.Optional<ScheduleDetailResponse> latestSchedule(long tourId) {
+        authorization.require(com.trekking.app.core.security.authorization.Permission.SCHEDULE_MANAGE);
+        requireTour(tourId);
+        return schedules.findFirstByTourIdOrderByDetailsUpdatedAtDescIdDesc(tourId).map(mapper::toDetailResponse);
     }
 
     @Override
@@ -206,6 +292,118 @@ public class TourServiceImpl implements TourService {
         } catch (DataIntegrityViolationException ex) {
             throw conflict("SCHEDULE_IN_USE", "Schedule is referenced by other records and cannot be deleted");
         }
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ItineraryDayResponse> readItinerary(long tourId, boolean publicAccess) {
+        Tour tour = tours.findById(tourId).orElseThrow(() -> notFound("Tour"));
+        if (publicAccess && tour.getStatus() != TourStatus.PUBLISHED) throw notFound("Tour");
+        return readDays(tourId);
+    }
+
+    private List<ItineraryDayResponse> readDays(long tourId) {
+        var grouped = new TreeMap<Integer, List<com.trekking.app.features.tour.dto.response.ActivityResponse>>();
+        activities.findAllByTourIdOrderByDayNumberAscDisplayOrderAscIdAsc(tourId)
+                .forEach(a -> grouped.computeIfAbsent(a.getDayNumber(), ignored -> new ArrayList<>()).add(activityMapper.toResponse(a)));
+        var metadata = new HashMap<Integer, TourItineraryDay>();
+        days.findAllByTourIdOrderByDayNumberAsc(tourId).forEach(d -> { metadata.put(d.getDayNumber(), d); grouped.putIfAbsent(d.getDayNumber(), new ArrayList<>()); });
+        return grouped.entrySet().stream().map(e -> {
+            var d = metadata.get(e.getKey());
+            return new ItineraryDayResponse(e.getKey(), d == null ? "Ngày " + e.getKey() : d.getTitle(),
+                    d == null ? null : d.getMeals(), d == null ? null : d.getOvernight(), e.getValue());
+        }).toList();
+    }
+
+    @Override
+    public List<ItineraryDayResponse> saveItinerary(long tourId, SaveItineraryRequest request) {
+        var tour = tours.findLockedById(tourId).orElseThrow(() -> notFound("Tour"));
+        var numbers = new HashSet<Integer>();
+        for (var day : request.days()) {
+            if (!numbers.add(day.dayNumber()) || (tour.getDurationDays() != null && day.dayNumber() > tour.getDurationDays())) {
+                throw new TourException(HttpStatus.BAD_REQUEST, "INVALID_ITINERARY_DAY", "Day numbers must be unique and within the tour duration");
+            }
+        }
+        activities.deleteAllInBatch(activities.findAllByTourIdOrderByDayNumberAscDisplayOrderAscIdAsc(tourId));
+        days.deleteAllByTourId(tourId);
+        days.flush();
+        for (var input : request.days()) {
+            var day = new TourItineraryDay();
+            day.setTourId(tourId); day.setDayNumber(input.dayNumber()); day.setTitle(input.title().trim());
+            day.setMeals(input.meals()); day.setOvernight(input.overnight()); days.save(day);
+            int order = 0;
+            for (var item : input.activities()) {
+                var activity = new TourActivity();
+                activity.setTourId(tourId); activity.setDayNumber(input.dayNumber()); activity.setDisplayOrder(order++);
+                activity.setStartTime(item.startTime()); activity.setTitle(item.title().trim());
+                activity.setDescription(item.description()); activity.setLocationId(item.locationId()); activities.save(activity);
+            }
+        }
+        activities.flush(); days.flush();
+        return readDays(tourId);
+    }
+
+
+    @Override @Transactional(readOnly = true)
+    public List<TourTermResponse> readTerms(long tourId, boolean publicAccess) {
+        var tour = tours.findById(tourId).orElseThrow(() -> notFound("Tour or term"));
+        if (publicAccess && tour.getStatus() != TourStatus.PUBLISHED) throw notFound("Tour or term");
+        var result = new java.util.ArrayList<TourTermResponse>();
+        if (tour.getCancellationPolicyVersionId() != null) {
+            var v = versions.findById(tour.getCancellationPolicyVersionId()).orElseThrow(() -> notFound("Tour or term"));
+            if (!publicAccess || isAvailable(v))
+                result.add(new TourTermResponse(v.getId(), v.getPolicy().getTitle(), v.getContent(), v.getVersionNumber(), -1, true));
+        }
+        result.addAll(responses(tourId, publicAccess));
+        return result;
+    }
+    @Override
+    public List<TourTermResponse> saveTerms(long tourId, SaveTourTermsRequest request) {
+        var tour = tours.findLockedById(tourId).orElseThrow(() -> notFound("Tour or term"));
+        if (new HashSet<>(request.versionIds()).size() != request.versionIds().size())
+            throw new TourException(HttpStatus.BAD_REQUEST, "DUPLICATE_TERM", "Terms must be unique");
+        var now = OffsetDateTime.now(clock);
+        if (Boolean.TRUE.equals(request.removeCancellationPolicy())) {
+            if (request.cancellationPolicyVersionId() != null)
+                throw new TourException(HttpStatus.BAD_REQUEST, "INVALID_CANCELLATION_POLICY", "Cannot select and remove a cancellation policy simultaneously");
+            if (tour.getStatus() == TourStatus.PUBLISHED)
+                throw new TourException(HttpStatus.CONFLICT, "CANCELLATION_POLICY_REQUIRED", "Published tours require a cancellation policy");
+            tour.setCancellationPolicyVersionId(null);
+        }
+        if (request.cancellationPolicyVersionId() != null && !request.cancellationPolicyVersionId().equals(tour.getCancellationPolicyVersionId())) {
+            var cancellation = versions.findById(request.cancellationPolicyVersionId()).orElseThrow(() -> notFound("Tour or term"));
+            if (cancellation.getPolicy().getKind() != PolicyKind.CANCELLATION || !isAvailable(cancellation))
+                throw new TourException(HttpStatus.CONFLICT, "CANCELLATION_POLICY_UNAVAILABLE", "Select an effective cancellation policy");
+            tour.setCancellationPolicyVersionId(cancellation.getId());
+        }
+        var policies = new HashSet<Long>();
+        for (long id : request.versionIds()) {
+            var v = versions.findById(id).orElseThrow(() -> notFound("Tour or term"));
+            if (!policies.add(v.getPolicyId()))
+                throw new TourException(HttpStatus.BAD_REQUEST, "DUPLICATE_TERM", "Only one version of each term can be selected");
+            if (v.getPolicy().getKind() == PolicyKind.CANCELLATION)
+                throw new TourException(HttpStatus.BAD_REQUEST, "INVALID_TERM_KIND", "Cancellation policy is selected separately for booking");
+            if (!Boolean.TRUE.equals(v.getPolicy().getActive()) || v.getApprovedAt() == null || v.getApprovedAt().isAfter(now)
+                    || v.getEffectiveFrom().isAfter(now) || v.getRevocation() != null)
+                throw new TourException(HttpStatus.CONFLICT, "TERM_UNAVAILABLE", "Selected term is not effective");
+        }
+        terms.deleteAllByTourId(tourId); terms.flush();
+        int order = 0;
+        for (long id : request.versionIds()) { var t = new TourTerm(); t.setTourId(tourId); t.setPolicyVersionId(id); t.setDisplayOrder(order++); terms.save(t); }
+        terms.flush(); return responses(tourId, false);
+    }
+    private List<TourTermResponse> responses(long tourId, boolean publicAccess) {
+        return terms.findAllByTourIdOrderByDisplayOrderAsc(tourId).stream().filter(t ->
+                !publicAccess || isAvailable(versions.findById(t.getPolicyVersionId()).orElseThrow(() -> notFound("Tour or term")))).map(t -> {
+            var v = versions.findById(t.getPolicyVersionId()).orElseThrow(() -> notFound("Tour or term"));
+            return new TourTermResponse(v.getId(), v.getPolicy().getTitle(), v.getContent(), v.getVersionNumber(), t.getDisplayOrder(), false);
+        }).toList();
+    }
+    private boolean isAvailable(com.trekking.app.features.policy.entity.PolicyVersion version) {
+        var now = OffsetDateTime.now(clock);
+        return Boolean.TRUE.equals(version.getPolicy().getActive()) && version.getRevocation() == null
+                && version.getApprovedAt() != null && !version.getApprovedAt().isAfter(now)
+                && !version.getEffectiveFrom().isAfter(now);
     }
 
     private Tour requireTour(long tourId) {

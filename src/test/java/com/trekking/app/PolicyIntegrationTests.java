@@ -14,11 +14,61 @@ import org.springframework.dao.DataAccessException;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 
 @SpringBootTest
 @AutoConfigureMockMvc
 class PolicyIntegrationTests extends AccountAuthorizationTestSupport {
     private static final String POLICIES = "/api/v1/admin/policies";
+
+    @Test
+    void deleteHidesPolicyAndPreservesReferencedVersions() throws Exception {
+        long admin = account("admin@example.invalid", "admin");
+        long customer = account("customer@example.invalid", "customer");
+        long policy = policy(admin, "cancellation", true);
+        long version = jdbc.queryForObject("insert into trekking.policy_versions(policy_id,version_number,content,effective_from,approved_by,approved_at) values (?,1,'Terms',current_timestamp,?,current_timestamp) returning id", Long.class, policy, admin);
+        jdbc.update("insert into trekking.tours(title,status,cancellation_policy_version_id,reviewed_by,reviewed_at) values ('Test','published',?,?,current_timestamp)", version, admin);
+        mvc.perform(delete(POLICIES + "/" + policy).header("Authorization", "Bearer " + access(session(customer)))).andExpect(status().isForbidden());
+        mvc.perform(delete(POLICIES + "/" + policy).header("Authorization", "Bearer " + access(session(admin)))).andExpect(status().isNoContent());
+        authGet(POLICIES, session(admin)).andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(0));
+        assertThat(jdbc.queryForObject("select active from trekking.policies where id=?", Boolean.class, policy)).isFalse();
+        assertThat(jdbc.queryForObject("select content from trekking.policy_versions where id=?", String.class, version)).isEqualTo("Terms");
+        assertThat(jdbc.queryForObject("select cancellation_policy_version_id from trekking.tours where title='Test'", Long.class)).isEqualTo(version);
+    }
+
+    @Test
+    void scheduledVersionCanBeRevokedAndReplacedBeforeOriginalEffectiveDate() throws Exception {
+        long admin = account("admin@example.invalid", "admin");
+        var token = session(admin);
+        long policy = policy(admin, "cancellation", true);
+        var scheduled = authPost(POLICIES + "/" + policy + "/versions", publish("Wrong future terms", OffsetDateTime.now().plusDays(10)), token)
+                .andExpect(status().isCreated()).andReturn();
+        long version = json.readTree(scheduled.getResponse().getContentAsString()).get("id").asLong();
+        authPost(POLICIES + "/" + policy + "/versions/" + version + "/revoke", Map.of("reason", "Replace scheduled terms"), token)
+                .andExpect(status().isOk()).andExpect(jsonPath("$.revokedAt").isNotEmpty());
+        authPost(POLICIES + "/" + policy + "/versions", publish("Replacement terms", OffsetDateTime.now().minusMinutes(1)), token)
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.versionNumber").value(2));
+        authGet(POLICIES + "/" + policy + "/versions", token).andExpect(status().isOk())
+                .andExpect(jsonPath("$[1].revocationReason").value("Replace scheduled terms"));
+        authGet(POLICIES + "/cancellation/available", token).andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].content").value("Replacement terms"));
+        assertThat(jdbc.queryForObject("select content from trekking.policy_versions where id=?", String.class, version))
+                .isEqualTo("Wrong future terms");
+    }
+
+    @Test
+    void createWithVersionRollsBackPolicyWhenInitialVersionAuditFails() throws Exception {
+        long admin = account("admin@example.invalid", "admin");
+        jdbc.execute("alter table trekking.audit_logs add constraint qa_atomic_policy check (action <> 'POLICY_VERSION_PUBLISHED')");
+        try {
+            authPost(POLICIES + "/with-version", Map.of("policy", Map.of("code", "ATOMIC", "title", "Atomic policy", "kind", "cancellation"),
+                            "version", publish("Terms", OffsetDateTime.now())), session(admin))
+                    .andExpect(status().isServiceUnavailable());
+            assertThat(jdbc.queryForObject("select count(*) from trekking.policies where code='ATOMIC'", Integer.class)).isZero();
+        } finally {
+            jdbc.execute("alter table trekking.audit_logs drop constraint qa_atomic_policy");
+        }
+    }
 
     @ParameterizedTest
     @ValueSource(strings = {"cancellation", "payment", "general"})

@@ -1,13 +1,25 @@
-FROM maven:3.9-eclipse-temurin-21-alpine AS build
-WORKDIR /workspace
-COPY pom.xml ./
-COPY src ./src
-RUN --mount=type=cache,target=/root/.m2 mvn -B -Dmaven.test.skip=true package
+FROM eclipse-temurin:21-jdk AS build
 
-FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
-RUN addgroup -S -g 10001 trekking && adduser -S -u 10001 -G trekking trekking
-COPY --from=build --chown=trekking:trekking /workspace/target/treeking-0.0.1-SNAPSHOT.jar app.jar
-USER trekking
+
+COPY .mvn .mvn
+COPY mvnw pom.xml ./
+
+RUN chmod +x mvnw
+RUN ./mvnw dependency:go-offline -B
+
+COPY src ./src
+
+RUN ./mvnw clean package -DskipTests -B
+
+FROM eclipse-temurin:21-jre
+
+WORKDIR /app
+
+COPY --from=build /app/target/*.jar app.jar
+
+ENV JAVA_TOOL_OPTIONS="-Xms128m -Xmx384m"
+
 EXPOSE 8080
-ENTRYPOINT ["java", "-Duser.timezone=Asia/Ho_Chi_Minh", "-jar", "/app/app.jar"]
+
+ENTRYPOINT ["java", "-jar", "app.jar"]

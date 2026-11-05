@@ -10,8 +10,6 @@ import java.util.List;
 
 public record SaveRentalPackageRequest(
         @NotBlank @Size(max = 200) String title,
-        String sharedItems,
-        String personalItemsToBring,
         @NotNull @PositiveOrZero Long rentalPriceVnd,
         @NotNull @Valid List<PackageItem> items) {
     public record PackageItem(

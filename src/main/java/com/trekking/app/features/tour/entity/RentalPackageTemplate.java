@@ -19,12 +19,6 @@ public class RentalPackageTemplate extends TimestampedEntity {
     @Column(name = "title", nullable = false, length = 200)
     private String title;
 
-    @Column(name = "shared_items", columnDefinition = "text")
-    private String sharedItems;
-
-    @Column(name = "personal_items_to_bring", columnDefinition = "text")
-    private String personalItemsToBring;
-
     @Column(name = "rental_price_vnd")
     private Long rentalPriceVnd;
 

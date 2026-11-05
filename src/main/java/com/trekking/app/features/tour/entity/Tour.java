@@ -66,6 +66,9 @@ public class Tour extends TimestampedEntity {
     @Column(name = "review_note", columnDefinition = "text")
     private String reviewNote;
 
+    @Column(name = "equipment_config_version", nullable = false)
+    private Long equipmentConfigVersion = 0L;
+
     @ManyToOne(fetch = FetchType.LAZY, optional = true)
     @JoinColumn(name = "cancellation_policy_version_id", referencedColumnName = "id", insertable = false, updatable = false)
     @Setter(AccessLevel.NONE)

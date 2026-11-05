@@ -13,6 +13,11 @@ import com.trekking.app.features.tour.enums.DifficultyLevel;
 import com.trekking.app.features.tour.enums.TourStatus;
 
 public interface TourService {
+    java.util.List<com.trekking.app.features.tour.dto.response.TourScheduleRangeResponse> listSchedulesInRange(java.time.OffsetDateTime start, java.time.OffsetDateTime end);
+    java.util.List<com.trekking.app.features.tour.dto.response.ItineraryDayResponse> readItinerary(long tourId, boolean publicAccess);
+    java.util.List<com.trekking.app.features.tour.dto.response.ItineraryDayResponse> saveItinerary(long tourId, com.trekking.app.features.tour.dto.request.SaveItineraryRequest request);
+    java.util.List<com.trekking.app.features.tour.dto.response.TourTermResponse> readTerms(long tourId, boolean publicAccess);
+    java.util.List<com.trekking.app.features.tour.dto.response.TourTermResponse> saveTerms(long tourId, com.trekking.app.features.tour.dto.request.SaveTourTermsRequest request);
     TourDetailResponse create(CreateTourRequest request);
     Page<TourSummaryResponse> list(int page, int size);
     Page<TourSummaryResponse> list(String query, DifficultyLevel difficulty, Integer durationDays, TourStatus status, int page, int size);
@@ -22,6 +27,9 @@ public interface TourService {
     TourDetailResponse update(long tourId, UpdateTourRequest request);
     void delete(long tourId);
     ScheduleDetailResponse createSchedule(long tourId, CreateScheduleRequest request);
+    java.util.Optional<com.trekking.app.features.tour.dto.response.ScheduleDefaultsResponse> readScheduleDefaults(long tourId);
+    com.trekking.app.features.tour.dto.response.ScheduleDefaultsResponse saveScheduleDefaults(long tourId, com.trekking.app.features.tour.dto.request.SaveScheduleDefaultsRequest request);
+    java.util.Optional<ScheduleDetailResponse> latestSchedule(long tourId);
     Page<ScheduleSummaryResponse> listSchedules(long tourId, int page, int size);
     Page<ScheduleSummaryResponse> listUpcomingSchedules(long tourId, int page, int size);
     Page<ScheduleSummaryResponse> listPublicUpcomingSchedules(long tourId, int page, int size);

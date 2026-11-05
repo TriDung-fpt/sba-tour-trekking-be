@@ -22,8 +22,36 @@ import org.springframework.web.bind.annotation.RestController;
 @SecurityRequirement(name = "bearerAuth")
 public class PolicyController {
     private final PolicyService policies;
+    private final com.trekking.app.features.policy.service.PolicyDocumentService documents;
 
-    public PolicyController(PolicyService policies) { this.policies = policies; }
+    public PolicyController(PolicyService policies, com.trekking.app.features.policy.service.PolicyDocumentService documents) { this.policies = policies; this.documents = documents; }
+
+    @org.springframework.web.bind.annotation.DeleteMapping("/{policyId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void delete(@PathVariable long policyId) { policies.delete(policyId); }
+
+    @PostMapping(value = "/extract-document", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)
+    public com.trekking.app.features.policy.dto.response.PolicyDocumentResponse extractDocument(
+            @org.springframework.web.bind.annotation.RequestPart("file") org.springframework.web.multipart.MultipartFile file) {
+        return documents.extract(file);
+    }
+
+    @PostMapping("/with-version")
+    @ResponseStatus(HttpStatus.CREATED)
+    public PolicyResponse createWithVersion(@Valid @RequestBody com.trekking.app.features.policy.dto.request.PolicyCreateWithVersionRequest request) {
+        return policies.createWithVersion(request);
+    }
+
+    @org.springframework.web.bind.annotation.PatchMapping("/{policyId}/status")
+    public PolicyResponse changeStatus(@PathVariable long policyId, @Valid @RequestBody com.trekking.app.features.policy.dto.request.PolicyStatusRequest request) {
+        return policies.changeStatus(policyId, request);
+    }
+
+    @PostMapping("/{policyId}/versions/{versionId}/revoke")
+    public PolicyVersionResponse revoke(@PathVariable long policyId, @PathVariable long versionId,
+                                         @Valid @RequestBody com.trekking.app.features.policy.dto.request.PolicyRevokeRequest request) {
+        return policies.revoke(policyId, versionId, request);
+    }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
@@ -31,6 +59,14 @@ public class PolicyController {
 
     @GetMapping
     public List<PolicyResponse> list() { return policies.list(); }
+
+    @GetMapping("/cancellation/available")
+    public List<PolicyVersionResponse> availableCancellationVersions() {
+        return policies.effectiveCancellationVersions();
+    }
+
+    @GetMapping("/available")
+    public List<PolicyVersionResponse> availableVersions() { return policies.effectiveVersions(); }
 
     @GetMapping("/{policyId}")
     public PolicyResponse read(@PathVariable long policyId) { return policies.read(policyId); }

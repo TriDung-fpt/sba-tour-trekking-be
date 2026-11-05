@@ -35,6 +35,9 @@ public class PaymentAttempt extends TimestampedEntity {
     @Column(name = "merchant_reference", nullable = false, length = 150)
     private String merchantReference;
 
+    @Column(name = "checkout_url", columnDefinition = "text")
+    private String checkoutUrl;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "purpose", nullable = false, columnDefinition = "text")
     private PaymentPurpose purpose;

@@ -12,6 +12,7 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
@@ -65,4 +66,46 @@ public class TourController {
     public void delete(@PathVariable long tourId) {
         tours.delete(tourId);
     }
+
+    @GetMapping("/{tourId}/schedule-defaults")
+    @SecurityRequirement(name = "bearerAuth")
+    public ResponseEntity<com.trekking.app.features.tour.dto.response.ScheduleDefaultsResponse> readScheduleDefaults(@PathVariable long tourId) {
+        return tours.readScheduleDefaults(tourId).map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.noContent().build());
+    }
+
+    @PutMapping("/{tourId}/schedule-defaults")
+    @SecurityRequirement(name = "bearerAuth")
+    public com.trekking.app.features.tour.dto.response.ScheduleDefaultsResponse saveScheduleDefaults(@PathVariable long tourId,
+            @Valid @RequestBody com.trekking.app.features.tour.dto.request.SaveScheduleDefaultsRequest request) {
+        return tours.saveScheduleDefaults(tourId, request);
+    }
+    @GetMapping("/schedules")
+    public java.util.List<com.trekking.app.features.tour.dto.response.TourScheduleRangeResponse> schedulesInRange(
+            @RequestParam @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE_TIME) java.time.OffsetDateTime start,
+            @RequestParam @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE_TIME) java.time.OffsetDateTime end) {
+        return tours.listSchedulesInRange(start, end);
+    }
+
+    @GetMapping("/{tourId}/itinerary")
+    public java.util.List<com.trekking.app.features.tour.dto.response.ItineraryDayResponse> readItinerary(@PathVariable long tourId, Authentication authentication) {
+        return tours.readItinerary(tourId, TourReadAccess.isNotAdmin(authentication));
+    }
+
+    @PutMapping("/{tourId}/itinerary")
+    public java.util.List<com.trekking.app.features.tour.dto.response.ItineraryDayResponse> saveItinerary(@PathVariable long tourId,
+            @Valid @RequestBody com.trekking.app.features.tour.dto.request.SaveItineraryRequest request) {
+        return tours.saveItinerary(tourId, request);
+    }
+
+    @GetMapping("/{tourId}/terms")
+    public java.util.List<com.trekking.app.features.tour.dto.response.TourTermResponse> readTerms(@PathVariable long tourId, Authentication authentication) {
+        return tours.readTerms(tourId, TourReadAccess.isNotAdmin(authentication));
+    }
+
+    @PutMapping("/{tourId}/terms")
+    public java.util.List<com.trekking.app.features.tour.dto.response.TourTermResponse> saveTerms(@PathVariable long tourId,
+            @Valid @RequestBody com.trekking.app.features.tour.dto.request.SaveTourTermsRequest request) {
+        return tours.saveTerms(tourId, request);
+    }
+
 }
