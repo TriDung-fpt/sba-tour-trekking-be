@@ -156,42 +156,47 @@ public class TourDocumentLoader {
                                  String locationsSummary, String equipmentPackageTitle,
                                  String equipmentIncluded, String equipmentToBring) {
         StringBuilder sb = new StringBuilder();
+        // --- English labels (for English queries) ---
         sb.append("Tour: ").append(title != null ? title : "").append("\n");
+        // --- Vietnamese labels (for Vietnamese queries) ---
+        sb.append("Tên tour: ").append(title != null ? title : "").append("\n");
         if (locationsSummary != null && !locationsSummary.isBlank()) {
-            sb.append("Locations / Route: ").append(locationsSummary).append("\n");
+            sb.append("Locations / Route / Địa điểm: ").append(locationsSummary).append("\n");
         }
-        sb.append("Duration: ").append(durationDays).append(" days\n");
+        sb.append("Duration / Thời gian: ").append(durationDays).append(" ngày (days)\n");
         if (pricePerPerson > 0) {
-            sb.append(String.format("Price: %,d VND per person\n", pricePerPerson));
+            sb.append(String.format("Price / Giá: %,d VND / người (per person)\n", pricePerPerson));
         }
         if (equipmentFeeVnd > 0) {
-            sb.append(String.format("Equipment rental fee: %,d VND\n", equipmentFeeVnd));
+            sb.append(String.format("Equipment rental fee / Phí thuê đồ: %,d VND\n", equipmentFeeVnd));
         }
         if (maxParticipants > 0) {
-            sb.append("Max participants: ").append(maxParticipants).append("\n");
+            sb.append("Max participants / Số người tối đa: ").append(maxParticipants).append("\n");
         }
-        sb.append("Difficulty: ").append(difficultyLevel != null ? difficultyLevel : "Moderate").append("\n");
+        sb.append("Difficulty / Độ khó: ").append(difficultyLevel != null ? difficultyLevel : "Moderate").append("\n");
         if (requiredExperience != null && !requiredExperience.isBlank()) {
-            sb.append("Required experience: ").append(requiredExperience).append("\n");
+            sb.append("Required experience / Kinh nghiệm cần có: ").append(requiredExperience).append("\n");
         }
         if (includedServices != null && !includedServices.isBlank()) {
-            sb.append("Included services: ").append(includedServices).append("\n");
+            sb.append("Included services / Dịch vụ bao gồm: ").append(includedServices).append("\n");
         }
         if (excludedServices != null && !excludedServices.isBlank()) {
-            sb.append("Excluded services: ").append(excludedServices).append("\n");
+            sb.append("Excluded services / Không bao gồm: ").append(excludedServices).append("\n");
         }
         if (equipmentIncluded != null && !equipmentIncluded.isBlank()) {
-            sb.append("Equipment provided: ").append(equipmentIncluded).append("\n");
+            sb.append("Equipment provided / Dụng cụ được cung cấp: ").append(equipmentIncluded).append("\n");
         }
         if (equipmentToBring != null && !equipmentToBring.isBlank()) {
-            sb.append("Personal items to bring: ").append(equipmentToBring).append("\n");
+            sb.append("Personal items to bring / Đồ cá nhân cần mang: ").append(equipmentToBring).append("\n");
         }
         if (cancellationPolicy != null && !cancellationPolicy.isBlank()) {
-            sb.append("Cancellation policy: ").append(cancellationPolicy).append("\n");
+            sb.append("Cancellation policy / Chính sách huỷ: ").append(cancellationPolicy).append("\n");
         }
         if (description != null && !description.isBlank()) {
-            sb.append("\nDescription:\n").append(description).append("\n");
+            sb.append("\nDescription / Mô tả:\n").append(description).append("\n");
         }
+        // Keywords to improve retrieval for Vietnamese queries
+        sb.append("\nTừ khoá: tour trekking, leo núi, khám phá, giá tour, lịch trình\n");
 
         return sb.toString();
     }
