@@ -21,6 +21,7 @@ on Tour is unnecessary: schedules are queried and paginated by tourId.
 | GET | /api/v1/tours/{tourId}/schedules/{scheduleId} | Departure details |
 | PUT | /api/v1/tours/{tourId}/schedules/{scheduleId} | Replace editable departure fields |
 | DELETE | /api/v1/tours/{tourId}/schedules/{scheduleId} | Delete unused departure, 204 |
+| GET/POST | /api/v1/schedules/{scheduleId}/guides | List or replace assigned guides (GUIDE_MANAGE) |
 | GET | /api/v1/tours/{tourId}/activities | List the tour's activities by day and order |
 | POST | /api/v1/tours/{tourId}/activities | Add an activity |
 | PUT | /api/v1/tours/{tourId}/activities/{activityId} | Update one activity |
@@ -48,6 +49,10 @@ management list behavior. The equipment catalog is scoped to this tour feature a
 uses the feature's existing ADMIN security rule.
 Schedule lists accept `upcomingOnly=true` to return future SCHEDULED departures in
 start-time/id order. Omitting it preserves the original list behavior.
+The schedule guide POST body is `{ "guides": [{ "guideId": 12, "isLead": true }] }`.
+It replaces the full assignment list; send an empty array to clear assignments.
+Each guide must be active and have the GUIDE role, exactly one guide must be lead
+when the list is non-empty, and a guide cannot be assigned to overlapping active schedules.
 
 The public tour equipment read uses the tour-specific tables added by migration 007 and extended by migration 021.
 The admin catalog uses the reusable package tables added by migration 009.
