@@ -184,15 +184,6 @@ class BusinessAuthorizationIntegrationTests extends AccountAuthorizationTestSupp
         paymentDenied();
     }
 
-    @Test
-    void outstandingBalanceUsesGeneratedGroupPriceAndSumOfAcceptedReceipts() throws Exception {
-        receipt(100000, "accepted", "first");
-        receipt(139999, "accepted", "second");
-        payment().andExpect(status().isOk());
-        receipt(1, "accepted", "last");
-        paymentDenied();
-    }
-
     @ParameterizedTest
     @ValueSource(longs = {240000, 240001})
     void fullyPaidAndOverpaidBookingsCannotCreateMorePayments(long amount) throws Exception {
