@@ -34,6 +34,7 @@ Repository dùng SQL migration theo thứ tự; chưa dùng Flyway. Không sửa
 | 021 | [021](021_multiple_tour_equipment_packages_and_items.sql) | Cho phép tour gắn nhiều combo và nhiều thiết bị lẻ, bảo toàn dữ liệu cũ và lịch sử giữ/giao/trả. |
 | 022 | [022](022_booking_equipment_pricing.sql) | Tính giá tour theo số khách, cộng phí thiết bị một lần cho toàn booking; bỏ cột phiên bản giá. |
 | 024 | [024](024_tour_participant_checkouts.sql) | Ghi nhận một lần guide kiểm đếm khách cuối chuyến, không sửa bảng participants. |
+| 025 | [025](025_dashboard_booking_schedule_indexes.sql) | Index cho dashboard theo ngày đặt và ngày khởi hành. |
 
 Compose và Testcontainers áp dụng migration 024 sau 022. Với database đã khởi tạo, áp dụng riêng 024 sau khi xác nhận 022 đã chạy; init scripts không chạy lại trên volume cũ.
 

@@ -44,7 +44,7 @@ class AuthorizationIntegrationTests extends AccountAuthorizationTestSupport {
             "ACCOUNT_READ", "ACCOUNT_BLOCK", "ACCOUNT_ROLES_WRITE", "POLICY_MANAGE",
             "FINANCE_READ", "PAYMENT_RECORD", "REFUND_APPROVE", "REFUND_RECORD",
             "TOUR_READ", "TOUR_MANAGE", "TOUR_COMPOSE", "TOUR_PUBLISH", "SCHEDULE_MANAGE",
-            "BOOKING_MANAGE", "GUIDE_MANAGE");
+            "BOOKING_MANAGE", "GUIDE_MANAGE", "REPORT_READ");
 
     @Test
     void authorizationRequiresCurrentAuthenticatedSession() throws Exception {
