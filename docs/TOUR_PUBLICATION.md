@@ -18,4 +18,7 @@ Deleting a tour changes its status to `ARCHIVED` and hides it from the default t
 
 The admin page provides search by name/code, status filters, pagination and policy details with version history. Create uses one form; code can be generated automatically. The duplicate-name warning is advisory; codes are checked without case sensitivity by the service. Same names may represent different policies.
 
-Apply migration `015_policy_revocations.sql` after 014 **before deploying this backend**. Existing Docker volumes do not run init scripts again. Follow the backup and migration procedure in `schema/migrations/README.md`; rebuilding the container alone does not apply the migration. No existing policy content or booking snapshot is rewritten by 015.
+Flyway applies the policy-revocation migration during backend startup. Legacy
+databases need a verified one-time baseline before startup; follow the backup
+and migration procedure in `schema/migrations/README.md`. No existing policy
+content or booking snapshot is rewritten by the migration.

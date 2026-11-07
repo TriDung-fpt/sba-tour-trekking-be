@@ -147,3 +147,22 @@ Provide local values through `.env` using `.env.example` as a guide. Never commi
 - Keep secrets, tokens, and environment-specific settings out of source control.
 - Update `.env.example` when introducing required configurations.
 - Document API or authentication behavior changes in `docs/`.
+
+## 10. Database Migrations
+
+- Flyway is the sole owner of schema changes. Add new immutable migrations under
+  `src/main/resources/db/migration` using `V<next>__<description>.sql` naming.
+- Check the current migration directory and `develop` before selecting a
+  version. Parallel branches can choose the same version; resolve duplicates
+  during integration by renumbering the later migration before merge.
+- Never edit or rename a migration already merged or applied. Add a new
+  migration to correct it.
+- Do not add SQL mounts to PostgreSQL `docker-entrypoint-initdb.d`; the backend
+  runs Flyway on startup for both fresh and existing tracked databases.
+- Keep `spring.jpa.hibernate.ddl-auto=validate`; do not use Hibernate to mutate
+  schema.
+- For existing databases without Flyway history, follow
+  `schema/migrations/README.md` and verify the exact baseline first. Never turn
+  on automatic baselining by default or guess a baseline version.
+- Run migration validation/tests and document any data preconditions or
+  non-transactional operations in the migration and PR.
