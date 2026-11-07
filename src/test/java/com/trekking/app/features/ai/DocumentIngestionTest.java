@@ -1,6 +1,8 @@
 package com.trekking.app.features.ai;
 
+import com.trekking.app.AuthTestInfrastructure;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import com.trekking.app.features.ai.dto.ChatResponse;
 import com.trekking.app.features.ai.service.IngestionService;
 import com.trekking.app.features.ai.service.RagService;
@@ -16,7 +18,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @SpringBootTest
-public class DocumentIngestionTest {
+@EnabledIfSystemProperty(named = "ai.integration", matches = "true")
+public class DocumentIngestionTest extends AuthTestInfrastructure {
 
     @Autowired
     private IngestionService ingestionService;

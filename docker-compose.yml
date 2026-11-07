@@ -1,4 +1,4 @@
-services:
+﻿services:
   backend:
     build: .
     restart: unless-stopped
@@ -9,6 +9,8 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       AI_BASE_URL: ${AI_BASE_URL:-http://host.docker.internal:1234}
+      SPRING_FLYWAY_BASELINE_ON_MIGRATE: ${FLYWAY_BASELINE_ON_MIGRATE:-false}
+      SPRING_FLYWAY_BASELINE_VERSION: ${FLYWAY_BASELINE_VERSION:-25}
     ports:
       - "127.0.0.1:${BACKEND_PORT:-8080}:8080"
     depends_on:
@@ -22,6 +24,22 @@ services:
       timeout: 3s
       retries: 6
       start_period: 60s
+  sample-data:
+    image: pgvector/pgvector:pg18
+    profiles: [sample-data]
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGPORT: 5432
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB}
+    volumes:
+      - ./schema/sample-data.sql:/tmp/sample-data.sql:ro
+    entrypoint: ["psql"]
+    command: ["--set", "ON_ERROR_STOP=1", "--file", "/tmp/sample-data.sql"]
   redis:
     image: redis:8.2-alpine
     restart: unless-stopped
@@ -47,30 +65,6 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - postgres_data:/var/lib/postgresql
-      - ./schema/schema.sql:/docker-entrypoint-initdb.d/01_init_schema.sql:ro
-      - ./schema/migrations/001_add_google_subject.sql:/docker-entrypoint-initdb.d/02_google_auth.sql:ro
-      - ./schema/migrations/002_add_account_session_version.sql:/docker-entrypoint-initdb.d/03_account_session_version.sql:ro
-      - ./schema/migrations/003_add_cooperation_policy_terms.sql:/docker-entrypoint-initdb.d/04_cooperation_policy_terms.sql:ro
-      - ./schema/migrations/004_add_financial_permissions.sql:/docker-entrypoint-initdb.d/05_financial_permissions.sql:ro
-      - ./schema/migrations/005_single_operator_foundation.sql:/docker-entrypoint-initdb.d/06_single_operator_foundation.sql:ro
-      - ./schema/migrations/006_remove_company_domain.sql:/docker-entrypoint-initdb.d/07_remove_company_domain.sql:ro
-      - ./schema/migrations/007_add_tour_equipment_catalog.sql:/docker-entrypoint-initdb.d/08_add_tour_equipment_catalog.sql:ro
-      - ./schema/migrations/008_add_tour_cloudinary_public_id.sql:/docker-entrypoint-initdb.d/09_add_tour_cloudinary_public_id.sql:ro
-      - ./schema/migrations/009_add_rental_package_templates.sql:/docker-entrypoint-initdb.d/10_add_rental_package_templates.sql:ro
-      - ./schema/migrations/010_abstract_tour_media_storage_key.sql:/docker-entrypoint-initdb.d/11_abstract_tour_media_storage_key.sql:ro
-      - ./schema/migrations/011_add_equipment_catalog_images.sql:/docker-entrypoint-initdb.d/12_add_equipment_catalog_images.sql:ro
-      - ./schema/migrations/012_define_rental_price_units.sql:/docker-entrypoint-initdb.d/13_define_rental_price_units.sql:ro
-      - ./schema/migrations/013_add_payment_checkout_url.sql:/docker-entrypoint-initdb.d/14_add_payment_checkout_url.sql:ro
-      - ./schema/migrations/014_equipment_inventory_operations.sql:/docker-entrypoint-initdb.d/15_equipment_inventory_operations.sql:ro
-      - ./schema/migrations/015_policy_revocations.sql:/docker-entrypoint-initdb.d/16_policy_revocations.sql:ro
-      - ./schema/migrations/016_tour_itinerary_days.sql:/docker-entrypoint-initdb.d/17_tour_itinerary_days.sql:ro
-      - ./schema/migrations/017_tour_terms.sql:/docker-entrypoint-initdb.d/18_tour_terms.sql:ro
-      - ./schema/migrations/018_policy_deleted.sql:/docker-entrypoint-initdb.d/19_policy_deleted.sql:ro
-      - ./schema/migrations/019_schedule_details_updated.sql:/docker-entrypoint-initdb.d/20_schedule_details_updated.sql:ro
-      - ./schema/migrations/020_tour_schedule_defaults.sql:/docker-entrypoint-initdb.d/21_tour_schedule_defaults.sql:ro
-      - ./schema/migrations/021_multiple_tour_equipment_packages_and_items.sql:/docker-entrypoint-initdb.d/22_multiple_tour_equipment_packages_and_items.sql:ro
-      - ./schema/migrations/022_booking_equipment_pricing.sql:/docker-entrypoint-initdb.d/23_booking_equipment_pricing.sql:ro
-      - ./schema/migrations/024_tour_participant_checkouts.sql:/docker-entrypoint-initdb.d/24_tour_participant_checkouts.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 5s

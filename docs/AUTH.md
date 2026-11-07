@@ -11,11 +11,10 @@ uses a unique, nullable `app_accounts.google_subject` to persist Google's stable
 
 ## Database upgrade
 
-Use the ordered SQL [migration registry](../schema/migrations/README.md).
-Fresh databases load the baseline then 001 through 006. For existing databases,
-back up and stop writers first; apply only missing migrations. A database at 004
-needs 005 then 006; one at 005 needs only 006. Existing Docker volumes do not rerun
-init scripts. Hibernate ddl-auto does not replace these migrations.
+Use the [Flyway migration guide](../schema/migrations/README.md). Fresh databases
+run pending migrations during backend startup. Existing databases created before
+Flyway need a one-time, verified baseline before startup can migrate them. Hibernate
+`ddl-auto=validate` checks mappings but never changes schema.
 
 005 limits current roles to admin/guide/customer and invalidates affected sessions,
 without promoting old staff to ADMIN. 006 archives original evidence outside the

@@ -8,4 +8,7 @@ The itinerary is the reusable day-by-day tour program; departure dates and capac
 {"days":[{"dayNumber":1,"title":"Hà Nội – Xím Vàng","meals":"Bữa tối","overnight":"Nhà nghỉ","activities":[{"startTime":"19:30","title":"Khởi hành","description":"Gặp hướng dẫn viên","locationId":null}]}]}
 ```
 
-Apply migration 016 after 015. Docker initialization scripts only run on a new volume; existing databases require the incremental migration. No existing activities are deleted by the migration.
+Flyway applies the itinerary migration during backend startup. Existing databases
+created before Flyway need a verified one-time baseline; see the
+[migration guide](../schema/migrations/README.md). No existing activities are
+deleted by the migration.
