@@ -18,6 +18,17 @@ then Hibernate checks the resulting schema. Do not mount SQL into
 `docker-entrypoint-initdb.d`; Compose and the app now share Flyway's one source
 of truth.
 
+To load the optional local/test fixture after the backend is healthy, run:
+
+```powershell
+docker compose --profile sample-data run --rm sample-data
+```
+
+`schema/sample-data.sql` contains test accounts, bookings and simulated payment
+records. It is data-only, targets the current schema, and is intentionally not
+loaded automatically. Use it only with a clean local/test database; it is not
+idempotent and must never be used as a production restore or migration.
+
 ## Existing databases (one-time adoption)
 
 Do not enable automatic baselining blindly. First back up the database and

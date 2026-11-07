@@ -24,6 +24,22 @@
       timeout: 3s
       retries: 6
       start_period: 60s
+  sample-data:
+    image: pgvector/pgvector:pg18
+    profiles: [sample-data]
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGPORT: 5432
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB}
+    volumes:
+      - ./schema/sample-data.sql:/tmp/sample-data.sql:ro
+    entrypoint: ["psql"]
+    command: ["--set", "ON_ERROR_STOP=1", "--file", "/tmp/sample-data.sql"]
   redis:
     image: redis:8.2-alpine
     restart: unless-stopped
