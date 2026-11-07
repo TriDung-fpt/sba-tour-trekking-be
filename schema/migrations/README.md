@@ -36,6 +36,8 @@ Repository dùng SQL migration theo thứ tự; chưa dùng Flyway. Không sửa
 | 024 | [024](024_tour_participant_checkouts.sql) | Ghi nhận một lần guide kiểm đếm khách cuối chuyến, không sửa bảng participants. |
 | 025 | [025](025_dashboard_booking_schedule_indexes.sql) | Index cho dashboard theo ngày đặt và ngày khởi hành. |
 | 026 | [026](026_account_admin_list_indexes.sql) | Index danh sách tài khoản admin theo status/created_at và role. |
+| 027 | [027](027_review_admin_list_indexes.sql) | Index danh sách review admin theo status/created_at và rating. |
+| 027 | [027](027_review_admin_list_indexes.sql) | Index danh sách review admin theo status/created_at và tour_rating. |
 
 Compose và Testcontainers áp dụng migration 024 sau 022. Với database đã khởi tạo, áp dụng riêng 024 sau khi xác nhận 022 đã chạy; init scripts không chạy lại trên volume cũ.
 

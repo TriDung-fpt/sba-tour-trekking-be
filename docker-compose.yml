@@ -72,6 +72,8 @@ services:
       - ./schema/migrations/024_tour_participant_checkouts.sql:/docker-entrypoint-initdb.d/24_tour_participant_checkouts.sql:ro
       - ./schema/migrations/025_dashboard_booking_schedule_indexes.sql:/docker-entrypoint-initdb.d/25_dashboard_booking_schedule_indexes.sql:ro
       - ./schema/migrations/026_account_admin_list_indexes.sql:/docker-entrypoint-initdb.d/26_account_admin_list_indexes.sql:ro
+      - ./schema/migrations/027_review_admin_list_indexes.sql:/docker-entrypoint-initdb.d/27_review_admin_list_indexes.sql:ro
+      - ./schema/migrations/027_review_admin_list_indexes.sql:/docker-entrypoint-initdb.d/27_review_admin_list_indexes.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 5s
