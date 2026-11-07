@@ -835,4 +835,3 @@ SELECT pg_catalog.setval('trekking.tours_id_seq', 1, false);
 --
 
 \unrestrict yaZDetwFNptgBLwGclFHhlxWeufF5iCjJoKBb1KGjf56alXKMx1npMozKKtorSb
-
