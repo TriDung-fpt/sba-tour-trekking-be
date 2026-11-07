@@ -1,6 +1,5 @@
 package com.trekking.app;
 
-import java.nio.file.Path;
 import java.time.Duration;
 import java.util.TimeZone;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -8,61 +7,13 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.utility.DockerImageName;
-import org.testcontainers.utility.MountableFile;
 
 public abstract class AuthTestInfrastructure {
     static final String JWT_SECRET = "auth-test-jwt-secret-for-tests-only-123456789";
     static final String OTP_SECRET = "auth-test-otp-secret-for-tests-only-987654321";
-    static final GenericContainer<?> POSTGRES = new GenericContainer<>(DockerImageName.parse("postgres:18.6"))
+    static final GenericContainer<?> POSTGRES = new GenericContainer<>(DockerImageName.parse("pgvector/pgvector:pg18"))
             .withEnv("POSTGRES_USER", "auth_test").withEnv("POSTGRES_PASSWORD", "auth_test")
             .withEnv("POSTGRES_DB", "auth_test").withExposedPorts(5432)
-            .withCopyFileToContainer(MountableFile.forHostPath(Path.of("schema/schema.sql")), "/docker-entrypoint-initdb.d/schema.sql")
-            .withCopyFileToContainer(MountableFile.forHostPath(Path.of("schema/migrations/001_add_google_subject.sql")),
-                    "/docker-entrypoint-initdb.d/zz_google_auth.sql")
-            .withCopyFileToContainer(MountableFile.forHostPath(Path.of("schema/migrations/002_add_account_session_version.sql")),
-                    "/docker-entrypoint-initdb.d/zzz_account_session_version.sql")
-            .withCopyFileToContainer(MountableFile.forHostPath(Path.of("schema/migrations/003_add_cooperation_policy_terms.sql")),
-                    "/docker-entrypoint-initdb.d/zzzz_policy_agreement_terms.sql")
-            .withCopyFileToContainer(MountableFile.forHostPath(Path.of("schema/migrations/004_add_financial_permissions.sql")),
-                    "/docker-entrypoint-initdb.d/zzzzz_financial_permissions.sql")
-            .withCopyFileToContainer(MountableFile.forHostPath(Path.of("schema/migrations/005_single_operator_foundation.sql")),
-                    "/docker-entrypoint-initdb.d/zzzzzz_single_operator_foundation.sql")
-            .withCopyFileToContainer(MountableFile.forHostPath(Path.of("schema/migrations/006_remove_company_domain.sql")),
-                    "/docker-entrypoint-initdb.d/zzzzzzz_remove_company_domain.sql")
-            .withCopyFileToContainer(MountableFile.forHostPath(Path.of("schema/migrations/007_add_tour_equipment_catalog.sql")),
-                    "/docker-entrypoint-initdb.d/zzzzzzzz_add_tour_equipment_catalog.sql")
-            .withCopyFileToContainer(MountableFile.forHostPath(Path.of("schema/migrations/008_add_tour_cloudinary_public_id.sql")),
-                    "/docker-entrypoint-initdb.d/zzzzzzzzz_add_tour_cloudinary_public_id.sql")
-            .withCopyFileToContainer(MountableFile.forHostPath(Path.of("schema/migrations/009_add_rental_package_templates.sql")),
-                    "/docker-entrypoint-initdb.d/zzzzzzzzzz_add_rental_package_templates.sql")
-            .withCopyFileToContainer(MountableFile.forHostPath(Path.of("schema/migrations/010_abstract_tour_media_storage_key.sql")),
-                    "/docker-entrypoint-initdb.d/zzzzzzzzzzz_abstract_tour_media_storage_key.sql")
-            .withCopyFileToContainer(MountableFile.forHostPath(Path.of("schema/migrations/011_add_equipment_catalog_images.sql")),
-                    "/docker-entrypoint-initdb.d/zzzzzzzzzzzz_add_equipment_catalog_images.sql")
-            .withCopyFileToContainer(MountableFile.forHostPath(Path.of("schema/migrations/012_define_rental_price_units.sql")),
-                    "/docker-entrypoint-initdb.d/zzzzzzzzzzzzz_define_rental_price_units.sql")
-            .withCopyFileToContainer(MountableFile.forHostPath(Path.of("schema/migrations/013_add_payment_checkout_url.sql")),
-                    "/docker-entrypoint-initdb.d/zzzzzzzzzzzzzz_add_payment_checkout_url.sql")
-            .withCopyFileToContainer(MountableFile.forHostPath(Path.of("schema/migrations/014_equipment_inventory_operations.sql")),
-                    "/docker-entrypoint-initdb.d/zzzzzzzzzzzzzzz_equipment_inventory_operations.sql")
-            .withCopyFileToContainer(MountableFile.forHostPath(Path.of("schema/migrations/015_policy_revocations.sql")),
-                    "/docker-entrypoint-initdb.d/zzzzzzzzzzzzzzzz_policy_revocations.sql")
-            .withCopyFileToContainer(MountableFile.forHostPath(Path.of("schema/migrations/016_tour_itinerary_days.sql")),
-                    "/docker-entrypoint-initdb.d/zzzzzzzzzzzzzzzzz_tour_itinerary_days.sql")
-            .withCopyFileToContainer(MountableFile.forHostPath(Path.of("schema/migrations/017_tour_terms.sql")),
-                    "/docker-entrypoint-initdb.d/zzzzzzzzzzzzzzzzzz_tour_terms.sql")
-            .withCopyFileToContainer(MountableFile.forHostPath(Path.of("schema/migrations/018_policy_deleted.sql")),
-                    "/docker-entrypoint-initdb.d/zzzzzzzzzzzzzzzzzzz_policy_deleted.sql")
-            .withCopyFileToContainer(MountableFile.forHostPath(Path.of("schema/migrations/019_schedule_details_updated.sql")),
-                    "/docker-entrypoint-initdb.d/zzzzzzzzzzzzzzzzzzzz_schedule_details_updated.sql")
-            .withCopyFileToContainer(MountableFile.forHostPath(Path.of("schema/migrations/020_tour_schedule_defaults.sql")),
-                    "/docker-entrypoint-initdb.d/zzzzzzzzzzzzzzzzzzzzz_schedule_defaults.sql")
-            .withCopyFileToContainer(MountableFile.forHostPath(Path.of("schema/migrations/021_multiple_tour_equipment_packages_and_items.sql")),
-                    "/docker-entrypoint-initdb.d/zzzzzzzzzzzzzzzzzzzzzz_multiple_tour_equipment_packages_and_items.sql")
-            .withCopyFileToContainer(MountableFile.forHostPath(Path.of("schema/migrations/022_booking_equipment_pricing.sql")),
-                    "/docker-entrypoint-initdb.d/zzzzzzzzzzzzzzzzzzzzzzz_booking_equipment_pricing.sql")
-            .withCopyFileToContainer(MountableFile.forHostPath(Path.of("schema/migrations/024_tour_participant_checkouts.sql")),
-                    "/docker-entrypoint-initdb.d/zzzzzzzzzzzzzzzzzzzzzzzz_tour_participant_checkouts.sql")
             .waitingFor(Wait.forLogMessage(".*database system is ready to accept connections.*\\n", 2))
             .withStartupTimeout(Duration.ofMinutes(2));
     static final GenericContainer<?> REDIS = new GenericContainer<>(DockerImageName.parse("redis:8.2-alpine"))
@@ -75,7 +26,7 @@ public abstract class AuthTestInfrastructure {
     }
 
     @DynamicPropertySource
-    static void properties(DynamicPropertyRegistry registry) {
+    public static void properties(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url", () -> "jdbc:postgresql://" + POSTGRES.getHost() + ":"
                 + POSTGRES.getMappedPort(5432) + "/auth_test?currentSchema=trekking");
         registry.add("spring.datasource.username", () -> "auth_test");

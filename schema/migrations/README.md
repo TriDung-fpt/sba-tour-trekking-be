@@ -1,53 +1,87 @@
-# SQL migration registry
+# Database migrations
 
-Repository dùng SQL migration theo thứ tự; chưa dùng Flyway. Không sửa bootstrap hoặc migration đã áp dụng để nâng cấp database có dữ liệu.
+Flyway owns schema changes. The application applies pending migrations during
+startup, before Hibernate validates entity mappings. A failed connection or SQL
+statement stops startup and Flyway logs the migration version and root database
+error. Hibernate remains `ddl-auto=validate`; it never repairs the schema.
 
-| Thứ tự | File | Nội dung |
-| --- | --- | --- |
-| Bootstrap | [schema.sql](../schema.sql) | Chỉ khởi tạo database mới. |
-| 001 | [001](001_add_google_subject.sql) | Google subject. |
-| 002 | [002](002_add_account_session_version.sql) | Thu hồi session theo account version. |
-| 003 | [003](003_add_cooperation_policy_terms.sql) | Bước lịch sử: snapshot agreement và khóa policy version. |
-| 004 | [004](004_add_financial_permissions.sql) | Bước lịch sử: grant tài chính và revision quyền. |
-| 005 | [005](005_single_operator_foundation.sql) | Ba role, lưu quyền cũ và scalar FK. |
-| 006 | [006](006_remove_company_domain.sql) | Xóa company khỏi schema hiện hành; archive bằng chứng, giữ tiền/snapshot/guide ID. |
-| 007 | [007](007_add_tour_equipment_catalog.sql) | Đổi `packing_items` thành `tour_required_items`; thêm danh mục dụng cụ và cấu hình gói/giá thuê. |
-| 008 | [008](008_add_tour_cloudinary_public_id.sql) | Lưu mã Cloudinary cho ảnh tour; ảnh cũ giữ nguyên URL. |
-| 009 | [009](009_add_rental_package_templates.sql) | Thêm mẫu gói thuê dụng cụ dùng chung cho tour. |
-| 010 | [010](010_abstract_tour_media_storage_key.sql) | Đổi cột ID Cloudinary thành khóa storage dùng chung. |
-| 011 | [011](011_add_equipment_catalog_images.sql) | Thêm URL ảnh và khóa storage cho dụng cụ và mẫu gói thuê. |
-| 012 | [012](012_define_rental_price_units.sql) | Ghi rõ giá gói tính theo mỗi gói, giá món lẻ theo mỗi món; không nhân theo số khách. |
-| 007 | [007](007_add_tour_equipment_catalog.sql) | Đổi `packing_items` thành `tour_required_items`; thêm danh mục dụng cụ và cấu hình gói/giá thuê. |
-| 008 | [008](008_add_tour_cloudinary_public_id.sql) | Lưu mã Cloudinary cho ảnh tour; ảnh cũ giữ nguyên URL. |
-| 009 | [009](009_add_rental_package_templates.sql) | Thêm mẫu gói thuê dụng cụ dùng chung cho tour. |
-| 010 | [010](010_abstract_tour_media_storage_key.sql) | Đổi cột ID Cloudinary thành khóa storage dùng chung. |
-| 011 | [011](011_add_equipment_catalog_images.sql) | Thêm URL ảnh và khóa storage cho dụng cụ và mẫu gói thuê. |
-| 012 | [012](012_define_rental_price_units.sql) | Ghi rõ giá gói tính theo mỗi gói, giá món lẻ theo mỗi món; không nhân theo số khách. |
-| 013 | [013](013_add_payment_checkout_url.sql) | Lưu URL checkout PayOS để request lặp dùng lại payment attempt đang hiệu lực. |
-| 014 | [014](014_equipment_inventory_operations.sql) | Thêm tồn/bảo trì, giữ dụng cụ và lịch sử cấp phát/nhận lại theo EQ-01–EQ-08. |
-| 015 | [015](015_policy_revocations.sql) | Lưu hủy phiên bản chính sách và lý do mà không sửa nội dung lịch sử. |
-| 016 | [016](016_tour_itinerary_days.sql) | Bổ sung tiêu đề, bữa ăn và nơi nghỉ cho từng ngày trong lịch trình tour. |
-| 017 | [017](017_tour_terms.sql) | Gắn nhiều phiên bản điều khoản dùng chung vào tour. |
-| 018 | [018](018_policy_deleted.sql) | Xóa mềm điều khoản, giữ phiên bản và lịch sử booking. |
-| 019 | [019](019_schedule_details_updated.sql) | Theo dõi lần cập nhật thông tin lịch để gợi ý lịch mới. |
-| 020 | [020](020_tour_schedule_defaults.sql) | Thông tin mặc định của lịch khi chưa chốt ngày khởi hành. |
-| 021 | [021](021_multiple_tour_equipment_packages_and_items.sql) | Cho phép tour gắn nhiều combo và nhiều thiết bị lẻ, bảo toàn dữ liệu cũ và lịch sử giữ/giao/trả. |
-| 022 | [022](022_booking_equipment_pricing.sql) | Tính giá tour theo số khách, cộng phí thiết bị một lần cho toàn booking; bỏ cột phiên bản giá. |
-| 024 | [024](024_tour_participant_checkouts.sql) | Ghi nhận một lần guide kiểm đếm khách cuối chuyến, không sửa bảng participants. |
+## New databases
 
-Compose và Testcontainers áp dụng migration 024 sau 022. Với database đã khởi tạo, áp dụng riêng 024 sau khi xác nhận 022 đã chạy; init scripts không chạy lại trên volume cũ.
+Run the normal Compose command:
 
-Database mới chạy bootstrap → 001 → 002 → 003 → 004 → 005 → 006 → 007 → 008 → 009 → 010 → 011 → 012 → 013 → 014 → 015 qua Compose/Testcontainers.
-Database đã có 012 áp dụng 013 rồi 014. Các phiên bản cũ hơn chạy tiếp các file còn thiếu theo thứ tự. Volume Docker cũ không chạy lại init scripts. Dừng writer, kiểm tra backup và phiên bản trước khi chạy từng SQL với ON_ERROR_STOP; không replay script đã áp dụng hoặc reset volume.
+```powershell
+docker compose up -d --build --wait
+```
 
-Migration 014 mở rộng catalog thiết bị được tạo từ migration 007; không chạy trước 007. Khi tích hợp feature/payment vào nhánh có 001–012, thêm 013 và 014 vào Compose/Testcontainers theo đúng thứ tự.
-Database mới chạy bootstrap → 001 → 002 → 003 → 004 → 005 → 006 → 007 → 008 → 009 → 010 → 011 → 012 qua Compose/Testcontainers.
-Database đã có 011 chỉ áp dụng 012; các phiên bản cũ hơn chạy tiếp các file còn thiếu theo thứ tự. Volume Docker cũ không chạy lại init scripts. Dừng writer, kiểm tra backup và phiên bản trước khi chạy từng SQL với ON_ERROR_STOP; không replay script đã áp dụng hoặc reset volume.
+The backend waits for PostgreSQL health, Flyway applies `V1` through `V26`, and
+then Hibernate checks the resulting schema. Do not mount SQL into
+`docker-entrypoint-initdb.d`; Compose and the app now share Flyway's one source
+of truth.
 
-005 không tự nâng nhân sự cũ thành ADMIN. 006 sao chụp 18 bảng vào legacy_archive và ghi manifest số dòng trước khi bỏ cột/bảng company. Archive không có FK tới schema hiện hành, Java mapping hoặc quyền nghiệp vụ. DML và TRUNCATE vào archive bị chặn; quyền quản trị database/backup vẫn phải được kiểm soát ở môi trường triển khai.
+## Existing databases (one-time adoption)
 
-006 giữ customer_payments, refund_requests, customer_refunds, audit_logs và các trường snapshot khách đã khóa; thông tin company/fee cũ của booking còn trong archive. Guide/assignment giữ ID, profile active không bị tự bật. Version có lịch sử tham chiếu giữ bất biến qua locked_for_history.
+Do not enable automatic baselining blindly. First back up the database and
+inspect its schema against the migration registry. Flyway has no history for
+databases created by the old init-script process, so choose the version that
+matches the schema already applied:
 
-Cooperation policy đang được booking/tour/AI document dùng làm reference khiến 006 dừng và rollback để rà soát. Không tự đổi policy của booking. Sau commit 006, app cũ không tương thích; recovery dùng backup cùng phiên bản app phù hợp.
+| Old SQL state | Flyway baseline version |
+| --- | ---: |
+| `schema.sql` only | 1 |
+| through old migration `001` | 2 |
+| through old migration `012` | 13 |
+| through old migration `022` | 23 |
+| through old migration `024` (current legacy schema) | 25 |
 
-Các case fresh/upgrade/rollback dùng PostgreSQL test riêng trong SchemaMigrationTests; không chạy migration trên database thật từ tác vụ mã nguồn này. Contract: [P0/P1](../../docs/P0_P1_IMPLEMENTATION.md).
+Old migration `023` was not present in the tracked migration chain. Baseline at
+the last migration that actually ran, not the highest number someone intended
+to run. A partial or uncertain schema needs manual review before adoption.
+
+After verifying the version, set these two values temporarily in `.env`:
+
+```dotenv
+FLYWAY_BASELINE_ON_MIGRATE=true
+FLYWAY_BASELINE_VERSION=25
+```
+
+Replace `25` with the verified version, then start the backend once:
+
+```powershell
+docker compose up -d backend
+docker compose logs -f backend
+```
+
+Confirm Flyway baselined the expected version and applied later migrations.
+Then set `FLYWAY_BASELINE_ON_MIGRATE=false` again. The recorded history stays
+in `trekking.flyway_schema_history`; future startup runs only pending versions.
+Never baseline an empty database or use baseline as a substitute for missing
+schema changes.
+
+## Adding migrations
+
+- Add a new immutable SQL file under `src/main/resources/db/migration` using
+  Flyway naming: `V<next>__<short_description>.sql`.
+- Check all existing versions before choosing the next number. Two concurrent
+  branches may choose the same version; resolve that before merge by assigning
+  the later integrated migration a new version and updating its references.
+- Never edit or rename a migration that has been merged or applied. Add a new
+  migration to correct it.
+- Keep migrations transactional where PostgreSQL supports it; do not add manual
+  `BEGIN`/`COMMIT` wrappers. For non-transactional DDL, document why and use an
+  explicit Flyway execution strategy.
+- Do not edit `schema/schema.sql` as the way to upgrade an existing database.
+  It is retained as historical bootstrap input for `V1`.
+- CI starts an empty PostgreSQL container and lets the application run Flyway;
+  migration version collisions or invalid SQL fail verification.
+
+## Migration mapping
+
+`V1` is the historical `schema.sql` baseline. Legacy scripts `001` through
+`022` map to Flyway `V2` through `V23`; legacy `024` maps to `V25`. `V24` is
+reserved for the gap in the old chain. `V26` enables pgvector in the `trekking`
+schema. Future migrations start at `V27`.
+
+Migration `006` archives and removes company-domain data. Back up first and
+review its preflight behavior before applying it to any database that has not
+already reached that version. Never reset a persistent volume to "fix" a
+migration failure.
