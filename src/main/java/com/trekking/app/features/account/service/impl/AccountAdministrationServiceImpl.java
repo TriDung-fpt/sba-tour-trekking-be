@@ -1,6 +1,8 @@
 package com.trekking.app.features.account.service.impl;
 
 import com.trekking.app.features.account.service.AccountAdministrationService;
+import com.trekking.app.features.account.dto.response.AdminAccountListItemResponse;
+import com.trekking.app.features.account.dto.response.AdminAccountPageResponse;
 import com.trekking.app.features.account.dto.response.AdminAccountResponse;
 import com.trekking.app.features.account.dto.response.GuideOptionResponse;
 
@@ -19,17 +21,30 @@ import com.trekking.app.features.account.service.audit.AccountAuditState;
 import com.trekking.app.features.account.service.audit.AuditWriter;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
+import jakarta.persistence.criteria.Predicate;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.EnumSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class AccountAdministrationServiceImpl implements AccountAdministrationService {
+    private static final int MAX_PAGE_SIZE = 100;
+    private static final int MAX_QUERY_LENGTH = 200;
     private static final Set<RoleType> ASSIGNABLE = EnumSet.of(RoleType.CUSTOMER, RoleType.GUIDE);
+    private static final Map<String, String> SORT_FIELDS = Map.of(
+            "createdat", "createdAt", "fullname", "fullName", "email", "email");
 
     private final AppAccountRepository accounts;
     private final AccountRoleRepository roles;
@@ -55,6 +70,27 @@ public class AccountAdministrationServiceImpl implements AccountAdministrationSe
         authorization.require(Permission.GUIDE_MANAGE);
         return guides.findActiveGuides().stream().map(g -> new GuideOptionResponse(g.getId(), g.getAccountId(),
                 g.getAccount().getFullName(), g.getAccount().getEmail(), g.getAccount().getPhone())).toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public AdminAccountPageResponse list(int page, int size, String query, String role, String status, String sort) {
+        authorization.require(Permission.ACCOUNT_READ);
+        if (page < 0 || size < 1 || size > MAX_PAGE_SIZE) {
+            throw invalidRequest("page must be >= 0 and size must be between 1 and 100");
+        }
+        RoleType roleFilter = parseRoleFilter(role);
+        AccountStatus statusFilter = parseStatusFilter(status);
+        String pattern = likePattern(query);
+        var result = accounts.findAll(filtered(roleFilter, statusFilter, pattern),
+                PageRequest.of(page, size, parseSort(sort)));
+        var rolesByAccount = roleLabels(result.getContent().stream().map(AppAccount::getId).toList());
+        var items = result.getContent().stream().map(account -> new AdminAccountListItemResponse(
+                account.getId(), account.getFullName(), account.getEmail(), account.getPhone(),
+                rolesByAccount.getOrDefault(account.getId(), List.of()), account.getStatus().getValue(),
+                account.getCreatedAt(), null)).toList();
+        return new AdminAccountPageResponse(items, result.getNumber(), result.getSize(),
+                result.getTotalElements(), result.getTotalPages());
     }
 
     @Transactional(readOnly = true)
@@ -180,6 +216,88 @@ public class AccountAdministrationServiceImpl implements AccountAdministrationSe
         return new AuthException(HttpStatus.NOT_FOUND, "ACCOUNT_NOT_FOUND", "Account was not found");
     }
 
+    private static AuthException invalidRequest(String message) {
+        return new AuthException(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", message);
+    }
+
+    private static Specification<AppAccount> filtered(RoleType role, AccountStatus status, String pattern) {
+        return (root, query, cb) -> {
+            var predicates = new ArrayList<Predicate>();
+            if (status != null) predicates.add(cb.equal(root.get("status"), status));
+            if (role != null) {
+                var roles = query.subquery(Long.class);
+                var roleRoot = roles.from(AccountRole.class);
+                roles.select(roleRoot.get("accountId")).where(
+                        cb.equal(roleRoot.get("accountId"), root.get("id")),
+                        cb.equal(roleRoot.get("role"), role));
+                predicates.add(cb.exists(roles));
+            }
+            if (pattern != null) {
+                var email = cb.like(cb.lower(root.get("email")), cb.literal(pattern), '\\');
+                var name = cb.like(cb.lower(root.get("fullName")), cb.literal(pattern), '\\');
+                var phone = cb.like(cb.lower(root.get("phone")), cb.literal(pattern), '\\');
+                predicates.add(cb.or(email, name, phone));
+            }
+            return predicates.isEmpty() ? cb.conjunction() : cb.and(predicates.toArray(Predicate[]::new));
+        };
+    }
+
+    private Map<Long, List<String>> roleLabels(Collection<Long> accountIds) {
+        if (accountIds.isEmpty()) return Map.of();
+        var grouped = new LinkedHashMap<Long, List<String>>();
+        for (Object[] row : roles.findRoleLabelsByAccountIds(accountIds)) {
+            long accountId = ((Number) row[0]).longValue();
+            grouped.computeIfAbsent(accountId, ignored -> new ArrayList<>()).add(String.valueOf(row[1]));
+        }
+        grouped.values().forEach(Collections::sort);
+        return grouped;
+    }
+
+    private static RoleType parseRoleFilter(String raw) {
+        if (raw == null || raw.isBlank()) return null;
+        String value = raw.strip();
+        for (RoleType type : RoleType.values()) {
+            if (type.name().equalsIgnoreCase(value) || type.getValue().equalsIgnoreCase(value)) return type;
+        }
+        throw invalidRequest("role must be ADMIN, GUIDE, or CUSTOMER");
+    }
+
+    private static AccountStatus parseStatusFilter(String raw) {
+        if (raw == null || raw.isBlank()) return null;
+        String value = raw.strip();
+        for (AccountStatus type : AccountStatus.values()) {
+            if (type.name().equalsIgnoreCase(value) || type.getValue().equalsIgnoreCase(value)) return type;
+        }
+        throw invalidRequest("status must be ACTIVE, BLOCKED, or DISABLED");
+    }
+
+    private static String likePattern(String raw) {
+        if (raw == null || raw.isBlank()) return null;
+        String value = raw.strip();
+        if (value.length() > MAX_QUERY_LENGTH) {
+            throw invalidRequest("q must be at most 200 characters");
+        }
+        return "%" + value.toLowerCase(Locale.ROOT).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
+    }
+
+    private static Sort parseSort(String raw) {
+        Sort.Direction direction = Sort.Direction.DESC;
+        String field = "createdAt";
+        if (raw != null && !raw.isBlank()) {
+            String[] parts = raw.split(",", -1);
+            if (parts.length > 2) throw invalidRequest("sort must be createdAt, fullName, or email");
+            field = SORT_FIELDS.get(parts[0].strip().toLowerCase(Locale.ROOT));
+            if (field == null) throw invalidRequest("sort must be createdAt, fullName, or email");
+            if (parts.length == 2) {
+                String requested = parts[1].strip().toLowerCase(Locale.ROOT);
+                if ("asc".equals(requested)) direction = Sort.Direction.ASC;
+                else if ("desc".equals(requested)) direction = Sort.Direction.DESC;
+                else throw invalidRequest("sort direction must be asc or desc");
+            }
+        }
+        return Sort.by(new Sort.Order(direction, field), Sort.Order.desc("id"));
+    }
+
     private static List<String> roleNames(List<AccountRole> accountRoles) {
         return accountRoles.stream().map(role -> role.getRole().getValue()).sorted().toList();
     }
@@ -192,6 +310,7 @@ public class AccountAdministrationServiceImpl implements AccountAdministrationSe
     private static AdminAccountResponse response(AppAccount account, List<String> roleNames) {
         return new AdminAccountResponse(account.getId(), account.getEmail(), account.getFullName(), account.getPhone(),
                 roleNames, account.getStatus().getValue(), account.getBlockedReason(), account.getBlockedBy(),
-                Boolean.TRUE.equals(account.getMustChangePassword()), account.getEmailVerifiedAt());
+                Boolean.TRUE.equals(account.getMustChangePassword()), account.getEmailVerifiedAt(),
+                account.getCreatedAt());
     }
 }
