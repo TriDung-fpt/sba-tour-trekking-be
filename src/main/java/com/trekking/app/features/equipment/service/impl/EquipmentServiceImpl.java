@@ -12,6 +12,7 @@ import com.trekking.app.features.equipment.repository.EquipmentInventoryReposito
 import com.trekking.app.features.equipment.repository.EquipmentReservationRepository;
 import com.trekking.app.features.equipment.service.EquipmentService;
 import com.trekking.app.features.tour.entity.Equipment;
+import com.trekking.app.features.tour.enums.EquipmentStatus;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import java.time.Clock;
@@ -46,14 +47,9 @@ public class EquipmentServiceImpl implements EquipmentService {
     public List<EquipmentResponses.EquipmentDetails> listEquipment() {
         authorize();
         OffsetDateTime now = OffsetDateTime.now(clock);
-        return inventory.findAllWithEquipmentOrdered().stream().map(item -> {
-            long committed = reservations.committedQuantityOverall(item.getEquipmentId(), now);
-            int available = Math.max(0, item.getTotalQuantity() - item.getMaintenanceQuantity() - Math.toIntExact(committed));
-            return new EquipmentResponses.EquipmentDetails(item.getEquipmentId(), item.getEquipment().getName(),
-                    item.getEquipment().getDescription(), item.getCategoryId(),
-                    item.getCategory() == null ? null : item.getCategory().getName(), item.getTotalQuantity(),
-                    item.getMaintenanceQuantity(), available, item.getActive());
-        }).toList();
+        return inventory.findAllWithEquipmentOrdered().stream()
+                .map(item -> details(item, reservations.committedQuantityOverall(item.getEquipmentId(), now)))
+                .toList();
     }
 
     @Override
@@ -62,6 +58,7 @@ public class EquipmentServiceImpl implements EquipmentService {
         authorize();
         Equipment catalogItem = entities.find(Equipment.class, equipmentId, LockModeType.PESSIMISTIC_WRITE);
         if (catalogItem == null) throw notFound();
+        if (catalogItem.getStatus() == EquipmentStatus.DELETED) throw conflict("EQUIPMENT_INACTIVE", "Deleted equipment cannot be updated through inventory");
         EquipmentCategory category = categories.findById(request.categoryId()).orElseThrow(EquipmentServiceImpl::notFound);
         if (!Boolean.TRUE.equals(category.getActive())) throw conflict("EQUIPMENT_CATEGORY_INACTIVE", "Inactive category cannot be assigned");
         if (request.maintenanceQuantity() > request.totalQuantity()) {
@@ -85,8 +82,9 @@ public class EquipmentServiceImpl implements EquipmentService {
         item.setTotalQuantity(request.totalQuantity());
         item.setMaintenanceQuantity(request.maintenanceQuantity());
         item.setActive(request.active());
+        catalogItem.setStatus(Boolean.TRUE.equals(request.active()) ? EquipmentStatus.ACTIVE : EquipmentStatus.MAINTENANCE);
         if (isNewInventory) entities.persist(item);
-        return details(item);
+        return details(item, committed);
     }
 
     @Override
@@ -132,13 +130,13 @@ public class EquipmentServiceImpl implements EquipmentService {
         categories.delete(category);
     }
 
-    private EquipmentResponses.EquipmentDetails details(EquipmentInventory item) {
-        long committed = reservations.committedQuantityOverall(item.getEquipmentId(), OffsetDateTime.now(clock));
-        int available = Math.max(0, item.getTotalQuantity() - item.getMaintenanceQuantity() - Math.toIntExact(committed));
+    private static EquipmentResponses.EquipmentDetails details(EquipmentInventory item, long committed) {
+        boolean active = item.getActive() && item.getEquipment().getStatus() == EquipmentStatus.ACTIVE;
+        int available = active ? Math.max(0, item.getTotalQuantity() - item.getMaintenanceQuantity() - Math.toIntExact(committed)) : 0;
         return new EquipmentResponses.EquipmentDetails(item.getEquipmentId(), item.getEquipment().getName(),
                 item.getEquipment().getDescription(), item.getCategoryId(),
                 item.getCategory() == null ? null : item.getCategory().getName(), item.getTotalQuantity(),
-                item.getMaintenanceQuantity(), available, item.getActive());
+                item.getMaintenanceQuantity(), available, active);
     }
 
     private void authorize() { authorization.require(Permission.TOUR_MANAGE); }

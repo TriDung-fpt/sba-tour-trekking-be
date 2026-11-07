@@ -6,6 +6,8 @@ import com.trekking.app.features.tour.dto.response.EquipmentCatalogResponse;
 import com.trekking.app.features.tour.dto.response.RentalPackageTemplateItemResponse;
 import com.trekking.app.features.tour.dto.response.RentalPackageTemplateResponse;
 import com.trekking.app.features.tour.entity.Equipment;
+import com.trekking.app.features.tour.enums.EquipmentStatus;
+import com.trekking.app.features.equipment.repository.EquipmentInventoryRepository;
 import com.trekking.app.features.tour.entity.RentalPackageTemplate;
 import com.trekking.app.features.tour.entity.RentalPackageTemplateItem;
 import com.trekking.app.features.tour.exception.TourException;
@@ -13,7 +15,6 @@ import com.trekking.app.features.tour.mapper.TourEquipmentMapper;
 import com.trekking.app.features.tour.repository.EquipmentRepository;
 import com.trekking.app.features.tour.repository.RentalPackageTemplateItemRepository;
 import com.trekking.app.features.tour.repository.RentalPackageTemplateRepository;
-import com.trekking.app.features.tour.repository.TourEquipmentItemRepository;
 import com.trekking.app.features.tour.repository.TourEquipmentPackageRepository;
 import com.trekking.app.features.tour.service.EquipmentCatalogService;
 import com.trekking.app.features.storage.ImageStorage;
@@ -35,27 +36,26 @@ import org.springframework.web.multipart.MultipartFile;
 @Transactional(readOnly = true)
 public class EquipmentCatalogServiceImpl implements EquipmentCatalogService {
     private final EquipmentRepository equipment;
+    private final EquipmentInventoryRepository inventory;
     private final RentalPackageTemplateRepository packageTemplates;
     private final RentalPackageTemplateItemRepository packageItems;
     private final TourEquipmentPackageRepository tourPackages;
-    private final TourEquipmentItemRepository tourItems;
     private final TourEquipmentMapper mapper;
     private final ImageStorage storage;
     private final TransactionTemplate transactions;
 
-    public EquipmentCatalogServiceImpl(EquipmentRepository equipment,
+    public EquipmentCatalogServiceImpl(EquipmentRepository equipment, EquipmentInventoryRepository inventory,
             RentalPackageTemplateRepository packageTemplates,
             RentalPackageTemplateItemRepository packageItems,
             TourEquipmentPackageRepository tourPackages,
-            TourEquipmentItemRepository tourItems,
             TourEquipmentMapper mapper,
             ImageStorage storage,
             PlatformTransactionManager transactionManager) {
         this.equipment = equipment;
+        this.inventory = inventory;
         this.packageTemplates = packageTemplates;
         this.packageItems = packageItems;
         this.tourPackages = tourPackages;
-        this.tourItems = tourItems;
         this.mapper = mapper;
         this.storage = storage;
         this.transactions = new TransactionTemplate(transactionManager);
@@ -63,7 +63,7 @@ public class EquipmentCatalogServiceImpl implements EquipmentCatalogService {
 
     @Override
     public List<EquipmentCatalogResponse> equipment() {
-        return equipment.findAllByOrderByNameAscIdAsc().stream().map(mapper::toResponse).toList();
+        return equipment.findAllByStatusNotOrderByNameAscIdAsc(EquipmentStatus.DELETED).stream().map(mapper::toResponse).toList();
     }
 
     @Override
@@ -77,21 +77,26 @@ public class EquipmentCatalogServiceImpl implements EquipmentCatalogService {
     @Override
     @Transactional
     public EquipmentCatalogResponse updateEquipment(long equipmentId, SaveEquipmentRequest request) {
-        Equipment item = equipment.findById(equipmentId).orElseThrow(() -> notFound("Equipment was not found"));
+        Equipment item = equipment.findForUpdate(equipmentId).filter(e -> e.getStatus() != EquipmentStatus.DELETED)
+                .orElseThrow(() -> notFound("Equipment was not found"));
         applyEquipment(item, request);
+        if (request.status() != null) {
+            inventory.findByEquipmentIdForUpdate(equipmentId)
+                    .ifPresent(stock -> stock.setActive(item.getStatus() == EquipmentStatus.ACTIVE));
+        }
         return mapper.toResponse(equipment.save(item));
     }
 
     @Override
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public EquipmentCatalogResponse uploadEquipmentImage(long equipmentId, MultipartFile file) {
-        Equipment existing = equipment.findById(equipmentId).orElseThrow(() -> notFound("Equipment was not found"));
+        Equipment existing = equipment.findByIdAndStatusNot(equipmentId, EquipmentStatus.DELETED).orElseThrow(() -> notFound("Equipment was not found"));
         String previousKey = existing.getStorageKey();
         var uploaded = uploadImage("trekking/equipment/" + equipmentId, file);
         EquipmentCatalogResponse response;
         try {
             response = transactions.execute(status -> {
-                Equipment item = equipment.findById(equipmentId)
+                Equipment item = equipment.findByIdAndStatusNot(equipmentId, EquipmentStatus.DELETED)
                         .orElseThrow(() -> notFound("Equipment was not found"));
                 item.setImageUrl(uploaded.url());
                 item.setStorageKey(uploaded.key());
@@ -109,7 +114,7 @@ public class EquipmentCatalogServiceImpl implements EquipmentCatalogService {
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void deleteEquipmentImage(long equipmentId) {
         String key = transactions.execute(status -> {
-            Equipment item = equipment.findById(equipmentId).orElseThrow(() -> notFound("Equipment was not found"));
+            Equipment item = equipment.findByIdAndStatusNot(equipmentId, EquipmentStatus.DELETED).orElseThrow(() -> notFound("Equipment was not found"));
             String currentKey = item.getStorageKey();
             item.setImageUrl(null);
             item.setStorageKey(null);
@@ -122,14 +127,9 @@ public class EquipmentCatalogServiceImpl implements EquipmentCatalogService {
     @Override
     @Transactional
     public void deleteEquipment(long equipmentId) {
-        Equipment item = equipment.findById(equipmentId).orElseThrow(() -> notFound("Equipment was not found"));
-        if (packageItems.existsByEquipmentId(equipmentId) || tourItems.existsByEquipmentId(equipmentId)) {
-            throw conflict("Equipment is used by a rental package or tour");
-        }
-        String key = item.getStorageKey();
-        equipment.delete(item);
-        equipment.flush();
-        if (key != null) storage.cleanup(key);
+        Equipment item = equipment.findForUpdate(equipmentId).orElseThrow(() -> notFound("Equipment was not found"));
+        item.setStatus(EquipmentStatus.DELETED);
+        equipment.saveAndFlush(item);
     }
 
     @Override
@@ -140,25 +140,25 @@ public class EquipmentCatalogServiceImpl implements EquipmentCatalogService {
     @Override
     @Transactional
     public RentalPackageTemplateResponse createPackage(SaveRentalPackageRequest request) {
-        validatePackageItems(request);
+        Map<Long, Equipment> selectedEquipment = validatePackageItems(request);
         RentalPackageTemplate template = new RentalPackageTemplate();
         applyPackage(template, request);
         template = packageTemplates.save(template);
-        savePackageItems(template.getId(), request.items());
+        savePackageItems(template.getId(), request.items(), selectedEquipment);
         return toTemplateResponse(template);
     }
 
     @Override
     @Transactional
     public RentalPackageTemplateResponse updatePackage(long packageId, SaveRentalPackageRequest request) {
-        validatePackageItems(request);
+        Map<Long, Equipment> selectedEquipment = validatePackageItems(request);
         RentalPackageTemplate template = packageTemplates.findById(packageId)
                 .orElseThrow(() -> notFound("Rental package was not found"));
         applyPackage(template, request);
         template = packageTemplates.save(template);
         packageItems.deleteAllByPackageTemplateId(packageId);
         packageItems.flush();
-        savePackageItems(packageId, request.items());
+        savePackageItems(packageId, request.items(), selectedEquipment);
         return toTemplateResponse(template);
     }
 
@@ -216,6 +216,10 @@ public class EquipmentCatalogServiceImpl implements EquipmentCatalogService {
     }
 
     private void applyEquipment(Equipment item, SaveEquipmentRequest request) {
+        if (request.status() == EquipmentStatus.DELETED) {
+            throw new TourException(HttpStatus.BAD_REQUEST, "INVALID_EQUIPMENT_STATUS", "Use the delete endpoint to delete equipment");
+        }
+        if (request.status() != null) item.setStatus(request.status());
         String name = request.name().trim();
         boolean duplicate = item.getId() == null
                 ? equipment.existsByNameIgnoreCase(name)
@@ -231,22 +235,21 @@ public class EquipmentCatalogServiceImpl implements EquipmentCatalogService {
         template.setRentalPriceVnd(request.rentalPriceVnd());
     }
 
-    private void validatePackageItems(SaveRentalPackageRequest request) {
+    private Map<Long, Equipment> validatePackageItems(SaveRentalPackageRequest request) {
         List<Long> ids = request.items().stream().map(SaveRentalPackageRequest.PackageItem::equipmentId).toList();
         if (ids.stream().distinct().count() != ids.size()) {
             throw new TourException(HttpStatus.BAD_REQUEST, "INVALID_EQUIPMENT_SELECTION", "A package cannot contain the same equipment more than once");
         }
         Map<Long, Equipment> found = equipment.findAllById(ids).stream()
                 .collect(Collectors.toMap(Equipment::getId, Function.identity()));
-        if (found.size() != ids.size()) {
+        if (found.size() != ids.size() || found.values().stream().anyMatch(e -> e.getStatus() != EquipmentStatus.ACTIVE)) {
             throw new TourException(HttpStatus.BAD_REQUEST, "INVALID_EQUIPMENT_SELECTION", "One or more equipment items were not found");
         }
+        return found;
     }
 
-    private void savePackageItems(long packageId, List<SaveRentalPackageRequest.PackageItem> requestedItems) {
-        Map<Long, Equipment> found = equipment.findAllById(
-                requestedItems.stream().map(SaveRentalPackageRequest.PackageItem::equipmentId).toList())
-                .stream().collect(Collectors.toMap(Equipment::getId, Function.identity()));
+    private void savePackageItems(long packageId, List<SaveRentalPackageRequest.PackageItem> requestedItems,
+                                  Map<Long, Equipment> found) {
         List<RentalPackageTemplateItem> rows = requestedItems.stream().map(input -> {
             RentalPackageTemplateItem item = new RentalPackageTemplateItem();
             item.setPackageTemplateId(packageId);

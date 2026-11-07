@@ -8,7 +8,5 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface RentalPackageTemplateItemRepository extends JpaRepository<RentalPackageTemplateItem, Long> {
     @EntityGraph(attributePaths = "equipment")
     List<RentalPackageTemplateItem> findAllByPackageTemplateIdOrderByIdAsc(long packageTemplateId);
-    List<RentalPackageTemplateItem> findAllByPackageTemplateIdInOrderByIdAsc(List<Long> packageTemplateIds);
-    boolean existsByEquipmentId(long equipmentId);
     void deleteAllByPackageTemplateId(long packageTemplateId);
 }

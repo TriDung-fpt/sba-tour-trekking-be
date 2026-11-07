@@ -12,6 +12,7 @@ import com.trekking.app.features.tour.entity.Tour;
 import com.trekking.app.features.tour.entity.TourEquipmentItem;
 import com.trekking.app.features.tour.entity.TourEquipmentPackage;
 import com.trekking.app.features.tour.enums.TourStatus;
+import com.trekking.app.features.tour.enums.EquipmentStatus;
 import com.trekking.app.features.tour.exception.TourException;
 import com.trekking.app.features.tour.mapper.TourEquipmentMapper;
 import com.trekking.app.features.tour.repository.*;
@@ -137,7 +138,8 @@ public class TourEquipmentServiceImpl implements TourEquipmentService {
 
         Map<Long, Equipment> foundEquipment = equipment.findAllById(individualIds).stream()
                 .collect(Collectors.toMap(Equipment::getId, Function.identity()));
-        if (foundEquipment.size() != individualIds.size()) {
+        if (foundEquipment.size() != individualIds.size()
+                || foundEquipment.values().stream().anyMatch(item -> item.getStatus() != EquipmentStatus.ACTIVE)) {
             throw new TourException(HttpStatus.BAD_REQUEST, "INVALID_EQUIPMENT_SELECTION",
                     "One or more equipment items were not found");
         }
@@ -180,6 +182,10 @@ public class TourEquipmentServiceImpl implements TourEquipmentService {
             RentalPackageTemplate template = foundTemplates.get(templateId);
             List<RentalPackageTemplateItem> templateRows = packageTemplateItems
                     .findAllByPackageTemplateIdOrderByIdAsc(templateId);
+            if (templateRows.stream().anyMatch(row -> row.getEquipment().getStatus() != EquipmentStatus.ACTIVE)) {
+                throw new TourException(HttpStatus.BAD_REQUEST, "INVALID_EQUIPMENT_SELECTION",
+                        "A selected package contains deleted equipment");
+            }
             String summary = templateRows.stream()
                     .map(row -> row.getEquipment().getName() + " × " + row.getQuantityInPackage())
                     .collect(Collectors.joining(", "));
@@ -296,18 +302,15 @@ public class TourEquipmentServiceImpl implements TourEquipmentService {
     private TourEquipmentResponse equipmentForTour(Tour tour, boolean publicAccess) {
         long tourId = tour.getId();
         long version = tour.getEquipmentConfigVersion() == null ? 0L : tour.getEquipmentConfigVersion();
-        List<TourEquipmentPackage> tourPackages = packages.findAllByTourIdAndActiveTrueOrderByIdAsc(tourId).stream()
-                .filter(pkg -> !publicAccess || !Boolean.TRUE.equals(pkg.getNeedsReview()))
-                .toList();
-        List<RentalPackageResponse> packageResponses = tourPackages.stream()
-                .map(pkg -> {
-                    List<RentalItemResponse> pkgItems = items.findAllByPackageIdOrderByIdAsc(pkg.getId()).stream()
-                            .map(mapper::toResponse)
-                            .toList();
-                    return mapper.toResponse(pkg, pkgItems);
-                })
-                .toList();
+        List<RentalPackageResponse> packageResponses = new ArrayList<>();
+        for (TourEquipmentPackage pkg : packages.findAllByTourIdAndActiveTrueOrderByIdAsc(tourId)) {
+            if (publicAccess && Boolean.TRUE.equals(pkg.getNeedsReview())) continue;
+            List<TourEquipmentItem> packageItems = items.findAllByPackageIdOrderByIdAsc(pkg.getId());
+            if (packageItems.stream().anyMatch(item -> item.getEquipment().getStatus() != EquipmentStatus.ACTIVE)) continue;
+            packageResponses.add(mapper.toResponse(pkg, packageItems.stream().map(mapper::toResponse).toList()));
+        }
         List<RentalItemResponse> individualResponses = items.findAllByTourIdAndPackageIdIsNullOrderByIdAsc(tourId).stream()
+                .filter(item -> item.getEquipment().getStatus() == EquipmentStatus.ACTIVE)
                 .map(mapper::toResponse)
                 .toList();
         return new TourEquipmentResponse(version, packageResponses, individualResponses);

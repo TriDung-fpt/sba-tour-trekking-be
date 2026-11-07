@@ -16,6 +16,22 @@ All `/api/v1/admin/**` routes require `TOUR_MANAGE`.
 
 Catalog and rental-package CRUD remain in the Tour feature; this Equipment extension owns category/stock, reservation, and handover operations.
 
+Catalog equipment has status `ACTIVE`, `MAINTENANCE`, or `DELETED`. The optional `status`
+field in catalog create/update accepts `ACTIVE` or `MAINTENANCE`; deletion uses the DELETE
+endpoint. Catalog responses include `status`. Items in maintenance cannot be selected for
+new reservations. Inventory's `maintenanceQuantity` counts individual units and does not
+automatically change the whole equipment status. Changing inventory `active` keeps the
+catalog status synchronized for existing clients. The inventory API reports available
+quantity as zero while the equipment or its inventory is inactive.
+
+`DELETE /api/v1/tours/equipment-catalog/{equipmentId}` sets status to `DELETED`
+and returns 204; repeated deletion also returns 204. It retains the equipment, its image,
+stock, and existing reservations and handovers for historical use. Deleted equipment is
+excluded from the catalog and customer choices; packages containing it cannot be selected
+for a new reservation. Inventory remains visible to administrators for stock management,
+but a deleted catalog item cannot be reactivated via the inventory API. Equipment names
+remain reserved, including names of deleted records. The API does not provide restoration.
+
 ### Tour equipment configuration (`GET/PUT /api/v1/tours/{tourId}/equipment`)
 
 - `PUT /api/v1/tours/{tourId}/equipment` accepts `version` (`Long`), `packageTemplateIds` (`List<Long>`, with legacy single `packageTemplateId` still accepted for backward compatibility), and `individualEquipmentIds` (`List<Long>`).

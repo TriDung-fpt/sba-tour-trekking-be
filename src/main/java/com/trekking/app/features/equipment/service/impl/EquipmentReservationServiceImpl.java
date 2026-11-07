@@ -10,12 +10,14 @@ import com.trekking.app.features.equipment.entity.EquipmentReservationItem;
 import com.trekking.app.features.equipment.repository.EquipmentInventoryRepository;
 import com.trekking.app.features.equipment.repository.EquipmentReservationItemRepository;
 import com.trekking.app.features.equipment.repository.EquipmentReservationRepository;
-import com.trekking.app.features.equipment.repository.TourEquipmentPackageLookupRepository;
 import com.trekking.app.features.equipment.service.EquipmentReservationService;
 import com.trekking.app.features.tour.entity.TourEquipmentItem;
+import com.trekking.app.features.tour.repository.EquipmentRepository;
+import com.trekking.app.features.tour.enums.EquipmentStatus;
 import com.trekking.app.features.tour.entity.TourEquipmentPackage;
 import com.trekking.app.features.tour.entity.TourSchedule;
 import com.trekking.app.features.tour.repository.TourEquipmentItemRepository;
+import com.trekking.app.features.tour.repository.TourEquipmentPackageRepository;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import java.time.Clock;
@@ -43,19 +45,21 @@ public class EquipmentReservationServiceImpl implements EquipmentReservationServ
     private static final String RETURNED = "returned";
 
     private final EquipmentInventoryRepository equipment;
+    private final EquipmentRepository catalog;
     private final TourEquipmentItemRepository packageItems;
-    private final TourEquipmentPackageLookupRepository packages;
+    private final TourEquipmentPackageRepository packages;
     private final EquipmentReservationRepository reservations;
     private final EquipmentReservationItemRepository reservationItems;
     private final EntityManager entities;
     private final ObjectMapper json;
     private final Clock clock;
 
-    public EquipmentReservationServiceImpl(EquipmentInventoryRepository equipment, TourEquipmentItemRepository packageItems,
-            TourEquipmentPackageLookupRepository packages, EquipmentReservationRepository reservations,
+    public EquipmentReservationServiceImpl(EquipmentInventoryRepository equipment, EquipmentRepository catalog, TourEquipmentItemRepository packageItems,
+            TourEquipmentPackageRepository packages, EquipmentReservationRepository reservations,
             EquipmentReservationItemRepository reservationItems, EntityManager entities,
             ObjectMapper json, Clock clock) {
         this.equipment = equipment;
+        this.catalog = catalog;
         this.packageItems = packageItems;
         this.packages = packages;
         this.reservations = reservations;
@@ -153,6 +157,13 @@ public class EquipmentReservationServiceImpl implements EquipmentReservationServ
         selectedLines.keySet().retainAll(quantitiesByItemId.keySet());
 
         List<Long> equipmentIds = selectedLines.values().stream().map(item -> item.getEquipmentId()).distinct().sorted().toList();
+        for (Long equipmentId : equipmentIds) {
+            var item = catalog.findForUpdate(equipmentId).orElseThrow(EquipmentReservationServiceImpl::notFound);
+            entities.refresh(item, LockModeType.PESSIMISTIC_WRITE);
+            if (item.getStatus() != EquipmentStatus.ACTIVE) {
+                throw conflict("EQUIPMENT_INACTIVE", "A selected equipment item is inactive");
+            }
+        }
         var lockedEquipment = equipment.findAllForUpdate(equipmentIds);
         if (lockedEquipment.size() != equipmentIds.size()) throw notFound();
         Map<Long, EquipmentInventory> byId = new LinkedHashMap<>();

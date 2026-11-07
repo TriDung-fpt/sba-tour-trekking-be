@@ -1,6 +1,7 @@
 package com.trekking.app.features.tour.entity;
 
 import com.trekking.app.core.common.entity.TimestampedEntity;
+import com.trekking.app.features.tour.enums.EquipmentStatus;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -27,4 +28,8 @@ public class Equipment extends TimestampedEntity {
 
     @Column(name = "storage_key", columnDefinition = "text")
     private String storageKey;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, columnDefinition = "text")
+    private EquipmentStatus status = EquipmentStatus.ACTIVE;
 }
