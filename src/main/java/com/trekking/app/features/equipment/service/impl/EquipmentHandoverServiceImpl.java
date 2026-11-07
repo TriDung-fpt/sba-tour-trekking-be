@@ -18,6 +18,7 @@ import com.trekking.app.features.equipment.service.EquipmentHandoverService;
 import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -44,6 +45,11 @@ public class EquipmentHandoverServiceImpl implements EquipmentHandoverService {
         this.equipment = equipment;
         this.authorization = authorization;
         this.clock = clock;
+    }
+
+    @Override
+    public Optional<EquipmentReservationResponse> findForAuthorizedBooking(long bookingId) {
+        return reservations.findByBookingId(bookingId).map(this::response);
     }
 
     @Override

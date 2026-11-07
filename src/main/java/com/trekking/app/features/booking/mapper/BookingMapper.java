@@ -10,6 +10,7 @@ import com.trekking.app.features.booking.entity.Booking;
 import com.trekking.app.features.booking.entity.Participant;
 import com.trekking.app.features.booking.enums.BookingEquipmentChoice;
 import com.trekking.app.features.booking.enums.BookingPaymentState;
+import com.trekking.app.features.equipment.dto.response.EquipmentReservationResponse;
 import com.trekking.app.features.tour.entity.Tour;
 import com.trekking.app.features.tour.entity.TourSchedule;
 import java.math.BigDecimal;
@@ -35,7 +36,7 @@ public class BookingMapper {
     }
 
     public BookingDetailResponse toDetail(Booking booking, TourSchedule schedule, List<Participant> participants,
-                                          long paidVnd, long refundedVnd) {
+                                          long paidVnd, long refundedVnd, EquipmentReservationResponse equipmentReservation) {
         Tour tour = schedule.getTour();
         return new BookingDetailResponse(
                 booking.getId(),
@@ -51,6 +52,7 @@ public class BookingMapper {
                 schedule.getMeetingPoint(),
                 equipmentChoice(booking),
                 readJson(booking.getEquipmentSnapshot()),
+                equipmentReservation,
                 readJson(booking.getPolicySnapshot()),
                 toPrice(booking, paidVnd, refundedVnd),
                 participants.stream().map(p -> toPassenger(p, booking.getCustomerId())).toList(),

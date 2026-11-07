@@ -2,6 +2,7 @@ package com.trekking.app.features.booking.dto.response;
 
 import com.trekking.app.features.booking.enums.BookingEquipmentChoice;
 import com.trekking.app.features.booking.enums.BookingStatus;
+import com.trekking.app.features.equipment.dto.response.EquipmentReservationResponse;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
@@ -20,6 +21,7 @@ public record BookingDetailResponse(
                 String meetingPoint,
                 BookingEquipmentChoice equipmentChoice,
                 Map<String, Object> equipmentSnapshot,
+                EquipmentReservationResponse equipmentReservation,
                 Map<String, Object> cancellationPolicy,
                 BookingPriceResponse price,
                 List<BookingPassengerResponse> passengers,
