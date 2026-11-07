@@ -34,7 +34,7 @@ public class ScheduleGuideQueryServiceImpl implements ScheduleGuideQueryService 
         }
         return assignments.findDetailsByScheduleId(scheduleId).stream().map(assignment -> {
             var account = assignment.getGuide().getAccount();
-            return new ScheduleGuideSummaryResponse(assignment.getGuideId(), account.getFullName(), account.getPhone(),
+            return new ScheduleGuideSummaryResponse(assignment.getGuideId(), account.getId(), account.getFullName(), account.getPhone(),
                     account.getEmail(), Boolean.TRUE.equals(assignment.getIsLead()), assignment.getCreatedAt());
         }).toList();
     }

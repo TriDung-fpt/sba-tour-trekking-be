@@ -21,6 +21,7 @@ public interface TourScheduleRepository extends JpaRepository<TourSchedule, Long
     Optional<TourSchedule> findByIdAndTourId(long id, long tourId);
     Optional<TourSchedule> findFirstByTourIdOrderByDetailsUpdatedAtDescIdDesc(long tourId);
     boolean existsByTourId(long tourId);
+    long countByTourId(long tourId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select s from TourSchedule s where s.id = :id and s.tourId = :tourId")

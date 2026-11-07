@@ -8,12 +8,21 @@ import java.util.Optional;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
-import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface EquipmentReservationRepository extends JpaRepository<EquipmentReservation, Long> {
-    boolean existsByPackageId(long packageId);
+    @Query(value = """
+            select e.id, e.name, sum(ri.quantity)
+            from trekking.equipment_reservation_items ri
+            join trekking.equipment_reservations r on r.id = ri.reservation_id
+            join trekking.tour_schedules s on s.id = r.schedule_id
+            join trekking.equipment e on e.id = ri.equipment_id
+            where s.tour_id = :tourId and r.status in ('confirmed', 'issued', 'return_required', 'returned')
+            group by e.id, e.name
+            order by e.name, e.id
+            """, nativeQuery = true)
+    List<Object[]> summarizeBookedEquipment(@Param("tourId") long tourId);
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select r from EquipmentReservation r where r.bookingId = :bookingId")
     Optional<EquipmentReservation> findByBookingIdForUpdate(@Param("bookingId") long bookingId);

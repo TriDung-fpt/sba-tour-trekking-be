@@ -68,7 +68,7 @@ public class AccountAdministrationServiceImpl implements AccountAdministrationSe
     @Transactional(readOnly = true)
     public List<GuideOptionResponse> listGuides() {
         authorization.require(Permission.GUIDE_MANAGE);
-        return guides.findActiveGuides().stream().map(g -> new GuideOptionResponse(g.getId(), g.getAccountId(),
+        return guides.findActiveGuides().stream().map(g -> new GuideOptionResponse(g.getId(), g.getId(), g.getAccountId(),
                 g.getAccount().getFullName(), g.getAccount().getEmail(), g.getAccount().getPhone())).toList();
     }
 

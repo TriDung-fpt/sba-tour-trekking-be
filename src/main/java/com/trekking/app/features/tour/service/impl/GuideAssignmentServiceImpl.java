@@ -33,7 +33,7 @@ public class GuideAssignmentServiceImpl implements GuideAssignmentService {
     @Override
     public List<GuideResponse> listAssignableGuides() {
         authorization.require(Permission.GUIDE_MANAGE);
-        return guides.findAllAssignableGuides().stream()
+        return guides.findActiveGuides().stream()
                 .map(guide -> new GuideResponse(guide.getId(), guide.getAccountId(),
                         guide.getAccount().getFullName(), guide.getAccount().getEmail()))
                 .toList();
@@ -45,7 +45,7 @@ public class GuideAssignmentServiceImpl implements GuideAssignmentService {
         if (!schedules.existsById(scheduleId)) {
             throw new AuthException(HttpStatus.NOT_FOUND, "RESOURCE_NOT_FOUND", "Resource was not found");
         }
-        return assignments.findAllByScheduleIdWithGuide(scheduleId).stream()
+        return assignments.findDetailsByScheduleId(scheduleId).stream()
                 .map(assignment -> new ScheduleGuideResponse(assignment.getGuideId(),
                         assignment.getGuide().getAccountId(), assignment.getGuide().getAccount().getFullName(),
                         assignment.getGuide().getAccount().getEmail(), Boolean.TRUE.equals(assignment.getIsLead())))
