@@ -54,7 +54,7 @@ public class RagService {
         if (relevantDocs.isEmpty()) {
             log.warn("No relevant documents found for query: '{}'", question);
             return new ChatResponse(
-                    "I'm sorry, I couldn't find any relevant tour information for your question.",
+                    "Xin lỗi, hiện tại tôi chưa tìm thấy thông tin tour phù hợp với yêu cầu của bạn. Bạn có thể cho tôi biết thêm về sở thích (độ khó, địa điểm mong muốn, hoặc thời gian) để tôi hỗ trợ tốt hơn nhé!",
                     List.of(),
                     sessionId
             );
@@ -100,7 +100,7 @@ public class RagService {
 
         if (relevantDocs.isEmpty()) {
             log.warn("No relevant documents found for streaming query: '{}'", question);
-            return reactor.core.publisher.Flux.just("I'm sorry, I couldn't find any relevant tour information for your question.");
+            return reactor.core.publisher.Flux.just("Xin lỗi, hiện tại tôi chưa tìm thấy thông tin tour phù hợp với yêu cầu của bạn. Bạn có thể cho tôi biết thêm về sở thích (độ khó, địa điểm mong muốn, hoặc thời gian) để tôi hỗ trợ tốt hơn nhé!");
         }
 
         // ── 2. Augment ─────────────────────────────────────────────────────
