@@ -13,7 +13,7 @@ Run the normal Compose command:
 docker compose up -d --build --wait
 ```
 
-The backend waits for PostgreSQL health, Flyway applies `V1` through `V26`, and
+The backend waits for PostgreSQL health, Flyway applies `V1` through `V32`, and
 then Hibernate checks the resulting schema. Do not mount SQL into
 `docker-entrypoint-initdb.d`; Compose and the app now share Flyway's one source
 of truth.
@@ -90,7 +90,9 @@ schema changes.
 `V1` is the historical `schema.sql` baseline. Legacy scripts `001` through
 `022` map to Flyway `V2` through `V23`; legacy `024` maps to `V25`. `V24` is
 reserved for the gap in the old chain. `V26` enables pgvector in the `trekking`
-schema. Future migrations start at `V27`.
+schema. PR #14 adds `V27` through `V32` under `src/main/resources/db/migration`;
+legacy SQL files in this directory are not applied by the application. Future
+migrations start at `V33` after PR #14.
 
 Migration `006` archives and removes company-domain data. Back up first and
 review its preflight behavior before applying it to any database that has not
