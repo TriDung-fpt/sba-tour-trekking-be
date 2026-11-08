@@ -156,6 +156,12 @@ public class AccountAdministrationServiceImpl implements AccountAdministrationSe
             added.add(role);
         });
         roles.saveAll(added);
+        if (requested.contains(RoleType.GUIDE) && guides.findByAccountId(id).isEmpty()) {
+            var guide = new com.trekking.app.features.account.entity.Guide();
+            guide.setAccountId(id);
+            guide.setActive(true);
+            guides.save(guide);
+        }
         var names = requested.stream().map(RoleType::getValue).sorted().toList();
         audits.accountChanged(authorization.currentAccountId(), id, AuditWriter.AccountAction.ACCOUNT_ROLES_CHANGED,
                 reason, before, state(account, names));
