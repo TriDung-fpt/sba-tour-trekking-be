@@ -1,3 +1,0 @@
-services:
-  postgres:
-    image: codex-trekking-postgres:18-vector
