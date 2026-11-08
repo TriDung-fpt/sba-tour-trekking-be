@@ -9,6 +9,9 @@ on Tour is unnecessary: schedules are queried and paginated by tourId.
 
 ## Routes
 
+Guide responses include `accountId` alongside `guideId`. The admin guide list at
+`GET /api/v1/admin/guides` returns both `id` and `guideId` for the guide ID.
+
 | Method | Path | Result |
 | --- | --- | --- |
 | POST | /api/v1/tours | Create draft tour, 201 |

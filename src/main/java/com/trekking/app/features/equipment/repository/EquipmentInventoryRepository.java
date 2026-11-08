@@ -11,7 +11,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface EquipmentInventoryRepository extends JpaRepository<EquipmentInventory, Long> {
-    @Query("select i from EquipmentInventory i join fetch i.equipment order by i.equipment.name")
+    @Query("select i from EquipmentInventory i join fetch i.equipment left join fetch i.category order by i.equipment.name")
     List<EquipmentInventory> findAllWithEquipmentOrdered();
     boolean existsByCategoryId(long categoryId);
 

@@ -40,6 +40,12 @@ public interface BookingRepository extends JpaRepository<Booking, Long>, JpaSpec
         List<Booking> findAllByCustomerIdAndStatusAndHoldExpiresAtAfterOrderByHoldExpiresAtAsc(
                         Long customerId, BookingStatus status, OffsetDateTime now);
 
+        List<Booking> findAllByScheduleIdAndStatusInOrderByIdAsc(
+                        Long scheduleId, Collection<BookingStatus> statuses);
+
+        List<Booking> findAllByScheduleIdInAndStatusInOrderByIdAsc(
+                        Collection<Long> scheduleIds, Collection<BookingStatus> statuses);
+
         @Override
         @EntityGraph(attributePaths = { "schedule", "schedule.tour" })
         Page<Booking> findAll(Specification<Booking> specification, Pageable pageable);

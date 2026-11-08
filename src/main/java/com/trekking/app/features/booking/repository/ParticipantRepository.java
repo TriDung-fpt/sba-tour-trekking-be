@@ -1,6 +1,7 @@
 package com.trekking.app.features.booking.repository;
 
 import com.trekking.app.features.booking.entity.Participant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import jakarta.persistence.LockModeType;
@@ -11,6 +12,8 @@ public interface ParticipantRepository extends JpaRepository<Participant, Long> 
     Optional<Participant> findByBookingIdAndAccountId(long bookingId, long accountId);
 
     List<Participant> findAllByBookingIdOrderByIdAsc(long bookingId);
+
+    List<Participant> findAllByBookingIdInOrderByIdAsc(Collection<Long> bookingIds);
 
     Optional<Participant> findByIdAndBookingId(long id, long bookingId);
 

@@ -30,6 +30,7 @@ import com.trekking.app.features.booking.repository.ParticipantRepository;
 import com.trekking.app.features.booking.service.BookingHoldService;
 import com.trekking.app.features.booking.service.BookingService;
 import com.trekking.app.features.equipment.service.EquipmentReservationService;
+import com.trekking.app.features.equipment.service.EquipmentHandoverService;
 import com.trekking.app.features.equipment.dto.request.EquipmentHoldRequest;
 import com.trekking.app.features.policy.entity.Policy;
 import com.trekking.app.features.policy.entity.PolicyVersion;
@@ -77,10 +78,12 @@ public class BookingServiceImpl implements BookingService {
     private final AuthorizationService authorization;
     private final Clock clock;
     private final EquipmentReservationService equipmentReservations;
+    private final EquipmentHandoverService equipmentHandovers;
 
     public BookingServiceImpl(BookingRepository bookings, ParticipantRepository participants,
                               BookingScheduleRepository schedules, BookingHoldService holds, BookingMapper mapper,
-                              AuthorizationService authorization, Clock clock, EquipmentReservationService equipmentReservations) {
+                              AuthorizationService authorization, Clock clock, EquipmentReservationService equipmentReservations,
+                              EquipmentHandoverService equipmentHandovers) {
         this.bookings = bookings;
         this.participants = participants;
         this.schedules = schedules;
@@ -89,6 +92,7 @@ public class BookingServiceImpl implements BookingService {
         this.authorization = authorization;
         this.clock = clock;
         this.equipmentReservations = equipmentReservations;
+        this.equipmentHandovers = equipmentHandovers;
     }
 
     @Override
@@ -364,7 +368,8 @@ public class BookingServiceImpl implements BookingService {
     private BookingDetailResponse detail(Booking booking, TourSchedule schedule) {
         long id = booking.getId();
         return mapper.toDetail(booking, schedule, participants.findAllByBookingIdOrderByIdAsc(id),
-                toLong(bookings.acceptedPaymentTotalVnd(id)), toLong(bookings.refundedTotalVnd(id)));
+                toLong(bookings.acceptedPaymentTotalVnd(id)), toLong(bookings.refundedTotalVnd(id)),
+                equipmentHandovers.findForAuthorizedBooking(id).orElse(null));
     }
 
     private BookingCancellationResponse cancellation(Booking booking) {
