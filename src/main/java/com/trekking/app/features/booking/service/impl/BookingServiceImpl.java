@@ -5,6 +5,8 @@ import com.trekking.app.core.security.authorization.AuthorizationService;
 import com.trekking.app.core.security.authorization.Permission;
 import com.trekking.app.features.account.dto.response.AuthorizationResponse;
 import com.trekking.app.features.account.enums.RoleType;
+import com.trekking.app.features.account.repository.AppAccountRepository;
+import com.trekking.app.features.booking.config.BookingProperties;
 import com.trekking.app.features.booking.dto.request.BookingPassengerRequest;
 import com.trekking.app.features.booking.dto.request.BookingSearchCriteria;
 import com.trekking.app.features.booking.dto.request.CancelBookingRequest;
@@ -24,14 +26,13 @@ import com.trekking.app.features.booking.exception.BookingErrorCode;
 import com.trekking.app.features.booking.exception.BookingException;
 import com.trekking.app.features.booking.mapper.BookingMapper;
 import com.trekking.app.features.booking.repository.BookingRepository;
-import com.trekking.app.features.booking.repository.BookingRepository.MoneyTotalsView;
 import com.trekking.app.features.booking.repository.BookingScheduleRepository;
+import com.trekking.app.features.booking.repository.BookingSpecifications;
 import com.trekking.app.features.booking.repository.ParticipantRepository;
 import com.trekking.app.features.booking.service.BookingHoldService;
+import com.trekking.app.features.booking.service.BookingPaymentService;
 import com.trekking.app.features.booking.service.BookingService;
 import com.trekking.app.features.equipment.service.EquipmentReservationService;
-import com.trekking.app.features.equipment.dto.request.EquipmentHoldRequest;
-import com.trekking.app.features.policy.entity.Policy;
 import com.trekking.app.features.policy.entity.PolicyVersion;
 import com.trekking.app.features.policy.enums.PolicyKind;
 import com.trekking.app.features.tour.entity.Tour;
@@ -43,33 +44,31 @@ import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.OffsetDateTime;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.util.HexFormat;
-import java.util.function.Function;
-import java.util.stream.Collectors;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
-import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 @Transactional
 public class BookingServiceImpl implements BookingService {
     private static final Duration HOLD_DURATION = Duration.ofMinutes(15);
-    private static final int MAX_PAGE_SIZE = 100;
-    private static final String CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-    private static final int CODE_LENGTH = 10;
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final BookingRepository bookings;
+    private final AppAccountRepository accounts;
+    private final BookingPaymentService bookingPayments;
+    private final TransactionTemplate conflictLookup;
     private final ParticipantRepository participants;
     private final BookingScheduleRepository schedules;
     private final BookingHoldService holds;
@@ -77,11 +76,19 @@ public class BookingServiceImpl implements BookingService {
     private final AuthorizationService authorization;
     private final Clock clock;
     private final EquipmentReservationService equipmentReservations;
+    private final BookingProperties properties;
 
     public BookingServiceImpl(BookingRepository bookings, ParticipantRepository participants,
                               BookingScheduleRepository schedules, BookingHoldService holds, BookingMapper mapper,
-                              AuthorizationService authorization, Clock clock, EquipmentReservationService equipmentReservations) {
+                              AuthorizationService authorization, Clock clock, EquipmentReservationService equipmentReservations,
+                              AppAccountRepository accounts, BookingPaymentService bookingPayments,
+                              PlatformTransactionManager transactionManager, BookingProperties properties) {
         this.bookings = bookings;
+        this.accounts = accounts;
+        this.bookingPayments = bookingPayments;
+        this.conflictLookup = new TransactionTemplate(transactionManager);
+        this.conflictLookup.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        this.conflictLookup.setReadOnly(true);
         this.participants = participants;
         this.schedules = schedules;
         this.holds = holds;
@@ -89,31 +96,33 @@ public class BookingServiceImpl implements BookingService {
         this.authorization = authorization;
         this.clock = clock;
         this.equipmentReservations = equipmentReservations;
+        this.properties = properties;
     }
 
     @Override
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public BookingCreateResult create(CreateBookingRequest request) {
         long customerId = requireCustomer();
         requireAtMostOneBookingCustomer(request.passengers());
+        String requestHash = mapper.toRequestHash(request);
 
-        bookings.lockIdempotencyKey(request.idempotencyKey());
+        // Serialize this customer's creates before checking retries or holds, across all schedules.
+        accounts.lockById(customerId).orElseThrow(() ->
+                new AuthException(HttpStatus.NOT_FOUND, "RESOURCE_NOT_FOUND", "Account was not found"));
         Optional<Booking> existing = bookings.findByIdempotencyKey(request.idempotencyKey());
         if (existing.isPresent()) {
             Booking booking = existing.get();
             if (booking.getCustomerId() != customerId || !booking.getScheduleId().equals(request.scheduleId())) {
                 throw new BookingException(BookingErrorCode.IDEMPOTENCY_KEY_REUSED);
             }
-            String hash = requestHash(request);
-            if (booking.getEquipmentSnapshot().contains("\"requestHash\"")
-                    && !booking.getEquipmentSnapshot().contains("\"requestHash\":\"" + hash + "\"")) {
+            String savedHash = mapper.readRequestHash(booking);
+            if (savedHash != null && !requestHash.equals(savedHash)) {
                 throw new BookingException(BookingErrorCode.IDEMPOTENCY_KEY_REUSED);
             }
             return new BookingCreateResult(false, detail(booking, booking.getSchedule()));
         }
 
-        // A customer may have only one live hold, even across schedules or browser tabs.
-        // The transaction-scoped advisory lock closes the race between concurrent requests.
-        bookings.lockCustomerBookingCreation(customerId);
+        // The account row lock also prevents two live holds from concurrent requests.
         List<BookingSummaryResponse> activeHolds = activeHoldSummaries(customerId, OffsetDateTime.now(clock));
         if (!activeHolds.isEmpty()) throw BookingException.activeBookingHolds(activeHolds);
 
@@ -121,45 +130,41 @@ public class BookingServiceImpl implements BookingService {
         holds.expireDueHolds(request.scheduleId());
 
         OffsetDateTime now = OffsetDateTime.now(clock);
-        TourSchedule schedule = schedules.findForUpdate(request.scheduleId())
+        TourSchedule schedule = schedules.findLockedById(request.scheduleId())
                 .orElseThrow(() -> new BookingException(BookingErrorCode.SCHEDULE_NOT_FOUND));
+        // Another customer may have committed this key while we waited for the schedule lock.
+        if (bookings.findByIdempotencyKey(request.idempotencyKey()).isPresent()) {
+            throw new BookingException(BookingErrorCode.IDEMPOTENCY_KEY_REUSED);
+        }
         PolicyVersion policy = requireBookable(schedule, now);
         int seats = request.passengers().size();
         int available = BookingMapper.availableSeats(schedule);
         if (available < seats) throw BookingException.insufficientSeats(available);
-        Map<Long, Integer> packageQuantities = request.packageQuantities() == null ? Map.of() : request.packageQuantities();
-        Map<Long, Integer> itemQuantities = request.itemQuantities() == null ? Map.of() : request.itemQuantities();
-        boolean hasEquipment = !packageQuantities.isEmpty() || !itemQuantities.isEmpty();
+        boolean hasEquipment = (request.packageQuantities() != null && !request.packageQuantities().isEmpty())
+                || (request.itemQuantities() != null && !request.itemQuantities().isEmpty());
         if (hasEquipment != (request.equipmentChoice() == BookingEquipmentChoice.TOUR_PACKAGE)) {
             throw new BookingException(BookingErrorCode.INVALID_EQUIPMENT_SELECTION,
                     "Choose equipment options or select self-provided equipment");
         }
 
-        Booking booking = new Booking();
-        booking.setBookingCode(newBookingCode());
-        booking.setIdempotencyKey(request.idempotencyKey());
-        booking.setCustomerId(customerId);
-        booking.setScheduleId(schedule.getId());
-        booking.setParticipantCount(seats);
-        booking.setIncludesEquipment(false);
-        booking.setBasePriceVnd(schedule.getBasePriceVnd());
-        booking.setEquipmentFeeVnd(0L);
-        booking.setDepositPercent(schedule.getDepositPercent());
-        booking.setCancellationPolicyVersionId(policy.getId());
-        booking.setPolicySnapshot(mapper.toJson(policySnapshot(policy)));
-        booking.setEquipmentSnapshot(mapper.toJson(Map.of("choice", request.equipmentChoice().name(), "requestHash", requestHash(request))));
-        booking.setHoldExpiresAt(now.plus(HOLD_DURATION));
-        booking.setBalanceDueAt(schedule.getBalanceDueAt());
+        Booking booking = mapper.toBooking(request, customerId, schedule, policy, newBookingCode(),
+                now.plus(HOLD_DURATION), requestHash);
+        try {
+            booking = bookings.saveAndFlush(booking);
+        } catch (DataIntegrityViolationException exception) {
+            // A different customer can race for the same globally unique key.
+            // Inspect the winner in a new transaction because this write has failed.
+            boolean reused = Boolean.TRUE.equals(conflictLookup.execute(ignored ->
+                    bookings.findByIdempotencyKey(request.idempotencyKey()).isPresent()));
+            if (reused) throw new BookingException(BookingErrorCode.IDEMPOTENCY_KEY_REUSED);
+            throw exception;
+        }
+
+        var hold = equipmentReservations.hold(mapper.toEquipmentHoldRequest(booking, request));
+        mapper.updateEquipment(booking, hold, request.equipmentChoice(), requestHash);
         booking = bookings.saveAndFlush(booking);
 
-        var hold = equipmentReservations.hold(new EquipmentHoldRequest(booking.getId(), schedule.getId(),
-                booking.getHoldExpiresAt(), seats, packageQuantities, itemQuantities));
-        booking.setEquipmentFeeVnd(hold.rentalFeeVnd());
-        booking.setIncludesEquipment(hold.includesEquipment());
-        booking.setEquipmentSnapshot(withRequestHash(hold.equipmentSnapshot(), request.equipmentChoice(), requestHash(request)));
-        booking = bookings.saveAndFlush(booking);
-
-        saveParticipants(booking.getId(), customerId, request.passengers());
+        participants.saveAll(mapper.toParticipants(booking.getId(), customerId, request.passengers()));
         schedule.setHeldSeats(schedule.getHeldSeats() + seats);
         participants.flush();
         return new BookingCreateResult(true, detail(booking, schedule));
@@ -169,9 +174,10 @@ public class BookingServiceImpl implements BookingService {
     @Transactional(readOnly = true)
     public Page<BookingSummaryResponse> listMine(BookingStatus status, int page, int size) {
         long customerId = requireCustomer();
-        Specification<Booking> filter = (root, q, cb) -> cb.equal(root.get("customerId"), customerId);
-        if (status != null) filter = filter.and((root, q, cb) -> cb.equal(root.get("status"), status));
-        return summaries(bookings.findAll(filter, pageRequest(page, size)));
+        PageRequest pageable = pageRequest(page, size);
+        return summaries(status == null
+                ? bookings.findByCustomerId(customerId, pageable)
+                : bookings.findByCustomerIdAndStatus(customerId, status, pageable));
     }
 
     @Override
@@ -184,26 +190,7 @@ public class BookingServiceImpl implements BookingService {
     @Transactional(readOnly = true)
     public Page<BookingSummaryResponse> search(BookingSearchCriteria criteria, int page, int size) {
         authorization.require(Permission.BOOKING_MANAGE);
-        Specification<Booking> filter = (root, q, cb) -> cb.conjunction();
-        if (criteria.status() != null) {
-            filter = filter.and((root, q, cb) -> cb.equal(root.get("status"), criteria.status()));
-        }
-        if (criteria.scheduleId() != null) {
-            filter = filter.and((root, q, cb) -> cb.equal(root.get("scheduleId"), criteria.scheduleId()));
-        }
-        if (criteria.tourId() != null) {
-            filter = filter.and((root, q, cb) -> cb.equal(root.get("schedule").get("tourId"), criteria.tourId()));
-        }
-        if (criteria.customerId() != null) {
-            filter = filter.and((root, q, cb) -> cb.equal(root.get("customerId"), criteria.customerId()));
-        }
-        if (criteria.createdFrom() != null) {
-            filter = filter.and((root, q, cb) -> cb.greaterThanOrEqualTo(root.get("createdAt"), criteria.createdFrom()));
-        }
-        if (criteria.createdTo() != null) {
-            filter = filter.and((root, q, cb) -> cb.lessThan(root.get("createdAt"), criteria.createdTo()));
-        }
-        return summaries(bookings.findAll(filter, pageRequest(page, size)));
+        return summaries(bookings.findAll(BookingSpecifications.matches(criteria), pageRequest(page, size)));
     }
 
     @Override
@@ -222,10 +209,10 @@ public class BookingServiceImpl implements BookingService {
         long customerId = requireCustomer();
         requireAtMostOneBookingCustomer(request.passengers());
         OffsetDateTime now = OffsetDateTime.now(clock);
-        Booking booking = bookings.findOwnedForUpdate(bookingId, customerId).orElseThrow(BookingException::notFound);
+        Booking booking = bookings.findLockedByIdAndCustomerId(bookingId, customerId).orElseThrow(BookingException::notFound);
         requireLiveUnpaidHold(booking, now);
 
-        TourSchedule schedule = schedules.findForUpdate(booking.getScheduleId())
+        TourSchedule schedule = schedules.findLockedById(booking.getScheduleId())
                 .orElseThrow(() -> new BookingException(BookingErrorCode.SCHEDULE_NOT_FOUND));
         int seats = request.passengers().size();
         int delta = seats - booking.getParticipantCount();
@@ -236,7 +223,7 @@ public class BookingServiceImpl implements BookingService {
         participants.deleteAllByBookingId(bookingId);
         // Hibernate runs inserts before deletes; flush so the (booking_id, account_id) key is free again.
         participants.flush();
-        saveParticipants(bookingId, customerId, request.passengers());
+        participants.saveAll(mapper.toParticipants(bookingId, customerId, request.passengers()));
         booking.setParticipantCount(seats);
         participants.flush();
         return detail(booking, schedule);
@@ -246,7 +233,7 @@ public class BookingServiceImpl implements BookingService {
     public BookingDetailResponse updatePassenger(long bookingId, long participantId, UpdatePassengerRequest request) {
         long customerId = requireCustomer();
         OffsetDateTime now = OffsetDateTime.now(clock);
-        Booking booking = bookings.findOwnedForUpdate(bookingId, customerId).orElseThrow(BookingException::notFound);
+        Booking booking = bookings.findLockedByIdAndCustomerId(bookingId, customerId).orElseThrow(BookingException::notFound);
         BookingStatus status = booking.getStatus();
         if ((status != BookingStatus.PENDING_PAYMENT && status != BookingStatus.CONFIRMED)
                 || !booking.getSchedule().getStartsAt().isAfter(now)) {
@@ -254,9 +241,7 @@ public class BookingServiceImpl implements BookingService {
         }
         Participant passenger = participants.findByIdAndBookingId(participantId, bookingId)
                 .orElseThrow(() -> new BookingException(BookingErrorCode.BOOKING_NOT_FOUND, "Passenger not found"));
-        passenger.setFullName(request.fullName().trim());
-        passenger.setPhone(blankToNull(request.phone()));
-        passenger.setEmail(blankToNull(request.email()));
+        mapper.updatePassenger(passenger, request);
         participants.flush();
         return detail(booking, booking.getSchedule());
     }
@@ -264,13 +249,13 @@ public class BookingServiceImpl implements BookingService {
     @Override
     public BookingCancellationResponse cancel(long bookingId, CancelBookingRequest request) {
         long customerId = requireCustomer();
-        Booking booking = bookings.findOwnedForUpdate(bookingId, customerId).orElseThrow(BookingException::notFound);
+        Booking booking = bookings.findLockedByIdAndCustomerId(bookingId, customerId).orElseThrow(BookingException::notFound);
         if (booking.getStatus() == BookingStatus.CANCELLED) return cancellation(booking);
         if (booking.getStatus() != BookingStatus.PENDING_PAYMENT && booking.getStatus() != BookingStatus.CONFIRMED) {
             throw new BookingException(BookingErrorCode.INVALID_BOOKING_TRANSITION);
         }
 
-        TourSchedule schedule = schedules.findForUpdate(booking.getScheduleId())
+        TourSchedule schedule = schedules.findLockedById(booking.getScheduleId())
                 .orElseThrow(() -> new BookingException(BookingErrorCode.SCHEDULE_NOT_FOUND));
         int seats = booking.getParticipantCount();
         if (booking.getStatus() == BookingStatus.PENDING_PAYMENT) {
@@ -330,71 +315,39 @@ public class BookingServiceImpl implements BookingService {
         }
     }
 
-    private void saveParticipants(long bookingId, long customerId, List<BookingPassengerRequest> passengers) {
-        participants.saveAll(passengers.stream().map(request -> {
-            Participant participant = new Participant();
-            participant.setBookingId(bookingId);
-            participant.setAccountId(request.isBookingCustomer() ? customerId : null);
-            participant.setFullName(request.fullName().trim());
-            participant.setPhone(blankToNull(request.phone()));
-            participant.setEmail(blankToNull(request.email()));
-            return participant;
-        }).toList());
-    }
-
     private static void requireAtMostOneBookingCustomer(List<BookingPassengerRequest> passengers) {
         if (passengers.stream().filter(BookingPassengerRequest::isBookingCustomer).count() > 1) {
             throw new BookingException(BookingErrorCode.MULTIPLE_BOOKING_CUSTOMERS);
         }
     }
 
-    private static Map<String, Object> policySnapshot(PolicyVersion version) {
-        Policy policy = version.getPolicy();
-        Map<String, Object> snapshot = new LinkedHashMap<>();
-        snapshot.put("policyId", policy.getId());
-        snapshot.put("policyCode", policy.getCode());
-        snapshot.put("title", policy.getTitle());
-        snapshot.put("versionId", version.getId());
-        snapshot.put("versionNumber", version.getVersionNumber());
-        snapshot.put("content", version.getContent());
-        snapshot.put("effectiveFrom", version.getEffectiveFrom().toString());
-        return snapshot;
-    }
-
     private BookingDetailResponse detail(Booking booking, TourSchedule schedule) {
         long id = booking.getId();
         return mapper.toDetail(booking, schedule, participants.findAllByBookingIdOrderByIdAsc(id),
-                toLong(bookings.acceptedPaymentTotalVnd(id)), toLong(bookings.refundedTotalVnd(id)));
+                toLong(bookingPayments.acceptedPaymentTotalVnd(id)), toLong(bookingPayments.refundedTotalVnd(id)));
     }
 
     private BookingCancellationResponse cancellation(Booking booking) {
         long id = booking.getId();
         return mapper.toCancellation(booking,
-                toLong(bookings.acceptedPaymentTotalVnd(id)), toLong(bookings.refundedTotalVnd(id)));
+                toLong(bookingPayments.acceptedPaymentTotalVnd(id)), toLong(bookingPayments.refundedTotalVnd(id)));
     }
 
     private Page<BookingSummaryResponse> summaries(Page<Booking> page) {
-        if (page.isEmpty()) return page.map(booking -> mapper.toSummary(booking, 0, 0));
-        Map<Long, MoneyTotalsView> totals = bookings.moneyTotals(page.map(Booking::getId).getContent()).stream()
-                .collect(Collectors.toMap(MoneyTotalsView::getBookingId, Function.identity()));
-        return page.map(booking -> {
-            MoneyTotalsView money = totals.get(booking.getId());
-            return money == null ? mapper.toSummary(booking, 0, 0)
-                    : mapper.toSummary(booking, money.getPaidVnd(), money.getRefundedVnd());
-        });
+        List<Long> ids = page.map(Booking::getId).getContent();
+        Map<Long, BigDecimal> paid = bookingPayments.acceptedPaymentTotals(ids);
+        Map<Long, BigDecimal> refunded = bookingPayments.refundedTotals(ids);
+        return mapper.toSummaries(page, paid, refunded);
     }
 
     private List<BookingSummaryResponse> activeHoldSummaries(long customerId, OffsetDateTime now) {
         List<Booking> active = bookings.findAllByCustomerIdAndStatusAndHoldExpiresAtAfterOrderByHoldExpiresAtAsc(
                 customerId, BookingStatus.PENDING_PAYMENT, now);
         if (active.isEmpty()) return List.of();
-        Map<Long, MoneyTotalsView> totals = bookings.moneyTotals(active.stream().map(Booking::getId).toList()).stream()
-                .collect(Collectors.toMap(MoneyTotalsView::getBookingId, Function.identity()));
-        return active.stream().map(booking -> {
-            MoneyTotalsView money = totals.get(booking.getId());
-            return money == null ? mapper.toSummary(booking, 0, 0)
-                    : mapper.toSummary(booking, money.getPaidVnd(), money.getRefundedVnd());
-        }).toList();
+        List<Long> ids = active.stream().map(Booking::getId).toList();
+        Map<Long, BigDecimal> paid = bookingPayments.acceptedPaymentTotals(ids);
+        Map<Long, BigDecimal> refunded = bookingPayments.refundedTotals(ids);
+        return mapper.toSummaries(active, paid, refunded);
     }
 
     private long requireCustomer() {
@@ -409,43 +362,21 @@ public class BookingServiceImpl implements BookingService {
         return authorization.authorization().permissions().contains(Permission.BOOKING_MANAGE.name());
     }
 
-    private static PageRequest pageRequest(int page, int size) {
-        return PageRequest.of(Math.max(page, 0), Math.clamp(size, 1, MAX_PAGE_SIZE),
+    private PageRequest pageRequest(int page, int size) {
+        return PageRequest.of(Math.max(page, 0), Math.clamp(size, 1, properties.maxPageSize()),
                 Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id")));
     }
 
-    private static String newBookingCode() {
+    private String newBookingCode() {
         StringBuilder code = new StringBuilder("BK");
-        for (int i = 0; i < CODE_LENGTH; i++) code.append(CODE_ALPHABET.charAt(RANDOM.nextInt(CODE_ALPHABET.length())));
+        String alphabet = properties.codeAlphabet();
+        for (int i = 0; i < properties.codeLength(); i++) {
+            code.append(alphabet.charAt(RANDOM.nextInt(alphabet.length())));
+        }
         return code.toString();
-    }
-
-    private static String blankToNull(String value) {
-        return value == null || value.isBlank() ? null : value.trim();
     }
 
     private static long toLong(BigDecimal value) {
         return value == null ? 0 : value.longValueExact();
-    }
-
-    private static String requestHash(CreateBookingRequest request) {
-        try {
-            String canonical = request.scheduleId() + "|" + request.equipmentChoice() + "|"
-                    + new java.util.TreeMap<>(request.packageQuantities() == null ? Map.of() : request.packageQuantities()) + "|"
-                    + new java.util.TreeMap<>(request.itemQuantities() == null ? Map.of() : request.itemQuantities()) + "|"
-                    + request.passengers().stream().map(p -> p.fullName() + "~" + p.phone() + "~" + p.email() + "~" + p.isBookingCustomer()).toList();
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(canonical.getBytes(StandardCharsets.UTF_8)));
-        } catch (Exception exception) {
-            throw new IllegalStateException("Could not fingerprint booking request", exception);
-        }
-    }
-
-    private static String withRequestHash(String snapshot, BookingEquipmentChoice choice, String hash) {
-        String json = snapshot == null || snapshot.isBlank() ? "{}" : snapshot;
-        int closingBrace = json.lastIndexOf('}');
-        if (closingBrace < 0) throw new IllegalStateException("Invalid equipment snapshot");
-        String prefix = json.substring(0, closingBrace).trim();
-        return prefix + (prefix.endsWith("{") ? "" : ",") + "\"choice\":\"" + choice.name()
-                + "\",\"requestHash\":\"" + hash + "\"}";
     }
 }

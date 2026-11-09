@@ -11,6 +11,7 @@ import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.util.List;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -19,7 +20,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 public class BookingHoldServiceImpl implements BookingHoldService {
-    private static final int BATCH_SIZE = 100;
+    private static final PageRequest EXPIRY_BATCH = PageRequest.of(0, 100, Sort.by("holdExpiresAt", "id"));
 
     private final BookingRepository bookings;
     private final BookingScheduleRepository schedules;
@@ -41,8 +42,9 @@ public class BookingHoldServiceImpl implements BookingHoldService {
     @Override
     public int expireDueHolds(long scheduleId) {
         OffsetDateTime now = OffsetDateTime.now(clock);
-        List<Long> ids = bookings.findDueHoldIdsForSchedule(scheduleId, BookingStatus.PENDING_PAYMENT, now,
-                PageRequest.of(0, BATCH_SIZE));
+        List<Long> ids = bookings.findByScheduleIdAndStatusAndHoldExpiresAtLessThanEqual(
+                scheduleId, BookingStatus.PENDING_PAYMENT, now, EXPIRY_BATCH)
+                .stream().map(Booking::getId).toList();
         int expired = 0;
         for (Long id : ids) {
             if (Boolean.TRUE.equals(newTransaction.execute(status -> expire(id, now)))) expired++;
@@ -53,7 +55,8 @@ public class BookingHoldServiceImpl implements BookingHoldService {
     @Scheduled(fixedDelay = 60_000)
     public int expireDueHolds() {
         OffsetDateTime now = OffsetDateTime.now(clock);
-        List<Long> ids = bookings.findDueHoldIds(BookingStatus.PENDING_PAYMENT, now, PageRequest.of(0, BATCH_SIZE));
+        List<Long> ids = bookings.findByStatusAndHoldExpiresAtLessThanEqual(
+                BookingStatus.PENDING_PAYMENT, now, EXPIRY_BATCH).stream().map(Booking::getId).toList();
         int expired = 0;
         for (Long id : ids) {
             if (Boolean.TRUE.equals(newTransaction.execute(status -> expire(id, now)))) expired++;
@@ -63,12 +66,12 @@ public class BookingHoldServiceImpl implements BookingHoldService {
 
     // Lock order: Booking, then Schedule. Re-check under lock so repeated runs are no-ops.
     private boolean expire(long bookingId, OffsetDateTime now) {
-        Booking booking = bookings.findForUpdate(bookingId).orElse(null);
+        Booking booking = bookings.findLockedById(bookingId).orElse(null);
         if (booking == null || booking.getStatus() != BookingStatus.PENDING_PAYMENT
                 || booking.getHoldExpiresAt().isAfter(now)) {
             return false;
         }
-        TourSchedule schedule = schedules.findForUpdate(booking.getScheduleId()).orElseThrow();
+        TourSchedule schedule = schedules.findLockedById(booking.getScheduleId()).orElseThrow();
         schedule.setHeldSeats(schedule.getHeldSeats() - booking.getParticipantCount());
         booking.setStatus(BookingStatus.EXPIRED);
         equipmentReservations.release(bookingId);

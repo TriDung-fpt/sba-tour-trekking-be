@@ -5,6 +5,8 @@ import com.trekking.app.features.account.repository.AuditLogRepository;
 import com.trekking.app.features.booking.entity.Booking;
 import com.trekking.app.features.booking.repository.BookingRepository;
 import com.trekking.app.features.booking.repository.ParticipantRepository;
+import com.trekking.app.features.booking.service.BookingPaymentService;
+import java.util.List;
 import com.trekking.app.features.payment.repository.RefundRequestRepository;
 import java.sql.SQLException;
 import java.time.OffsetDateTime;
@@ -27,6 +29,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @AutoConfigureMockMvc
 class RepositoryCompatibilityIntegrationTests extends AccountAuthorizationTestSupport {
     @Autowired BookingRepository bookings;
+    @Autowired BookingPaymentService bookingPayments;
     @Autowired ParticipantRepository participants;
     @Autowired AuditLogRepository audits;
     @Autowired RefundRequestRepository refunds;
@@ -74,9 +77,33 @@ class RepositoryCompatibilityIntegrationTests extends AccountAuthorizationTestSu
         receipt(30000, "accepted", "accepted-first");
         receipt(20000, "accepted", "accepted-second");
         receipt(90000, "pending_review", "unallocated");
-        assertThat(bookings.acceptedPaymentTotalVnd(bookingId)).isEqualByComparingTo("50000");
-        assertThat(bookings.acceptedPaymentTotalVnd(999999)).isZero();
-        assertThat(bookings.hasReview(bookingId)).isFalse();
+        assertThat(bookingPayments.acceptedPaymentTotalVnd(bookingId)).isEqualByComparingTo("50000");
+        assertThat(bookingPayments.acceptedPaymentTotalVnd(999999)).isZero();
+        assertThat(bookingPayments.acceptedPaymentTotals(List.of(bookingId, 999999L)))
+                .containsOnlyKeys(bookingId)
+                .hasEntrySatisfying(bookingId, total -> assertThat(total).isEqualByComparingTo("50000"));
+        assertThat(bookingPayments.acceptedPaymentTotals(List.of())).isEmpty();
+        assertThat(bookingPayments.refundedTotalVnd(bookingId)).isZero();
+    }
+
+    @Test
+    void refundTotalsCountActualRefundsInsteadOfApprovedRequests() {
+        long refundId = jdbc.queryForObject("""
+                insert into trekking.refund_requests(booking_id, requested_by, reason, requested_amount_vnd, idempotency_key)
+                values (?, ?, 'Refund totals', 50000, 'refund-totals') returning id
+                """, Long.class, bookingId, customer);
+        jdbc.update("""
+                insert into trekking.customer_refunds(refund_request_id, booking_id, amount_vnd, channel,
+                    transaction_reference, idempotency_key, refunded_at, recorded_by, evidence_url)
+                values (?, ?, 10000, 'bank_transfer', 'refund-1', 'actual-refund-1', current_timestamp, ?, 'evidence'),
+                       (?, ?, 20000, 'bank_transfer', 'refund-2', 'actual-refund-2', current_timestamp, ?, 'evidence')
+                """, refundId, bookingId, admin, refundId, bookingId, admin);
+        assertThat(bookingPayments.refundedTotalVnd(bookingId)).isEqualByComparingTo("30000");
+        assertThat(bookingPayments.refundedTotalVnd(999999)).isZero();
+        assertThat(bookingPayments.refundedTotals(List.of(bookingId, 999999L)))
+                .containsOnlyKeys(bookingId)
+                .hasEntrySatisfying(bookingId, total -> assertThat(total).isEqualByComparingTo("30000"));
+        assertThat(bookingPayments.refundedTotals(List.of())).isEmpty();
     }
 
     @Test

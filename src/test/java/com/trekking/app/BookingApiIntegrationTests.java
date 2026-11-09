@@ -3,6 +3,11 @@ package com.trekking.app;
 import com.trekking.app.features.auth.model.IssuedTokens;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+
+import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -13,7 +18,11 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@SpringBootTest
+@SpringBootTest(properties = {
+        "app.booking.max-page-size=2",
+        "app.booking.code-alphabet=ABCD23456789",
+        "app.booking.code-length=12"
+})
 @AutoConfigureMockMvc
 class BookingApiIntegrationTests extends AccountAuthorizationTestSupport {
     private static final boolean PRINT = Boolean.getBoolean("booking.print");
@@ -45,6 +54,7 @@ class BookingApiIntegrationTests extends AccountAuthorizationTestSupport {
         MvcResult created = show("Create booking", "POST", "/api/v1/bookings", create,
                 authPost("/api/v1/bookings", create, customerSession)
                         .andExpect(status().isCreated())
+                        .andExpect(jsonPath("$.bookingCode").value(org.hamcrest.Matchers.matchesPattern("BK[ABCD23456789]{12}")))
                         .andExpect(jsonPath("$.status").value("PENDING_PAYMENT"))
                         .andExpect(jsonPath("$.price.totalPriceVnd").value(4_000_000))
                         .andExpect(jsonPath("$.price.depositAmountVnd").value(1_200_000))
@@ -62,9 +72,10 @@ class BookingApiIntegrationTests extends AccountAuthorizationTestSupport {
                         .andExpect(jsonPath("$.heldSeats").value(2))
                         .andExpect(jsonPath("$.availableSeats").value(3)));
 
-        show("My bookings", "GET", "/api/v1/bookings/my", null,
-                authGet("/api/v1/bookings/my", customerSession)
+        show("My bookings", "GET", "/api/v1/bookings/my?size=100", null,
+                authGet("/api/v1/bookings/my?size=100", customerSession)
                         .andExpect(status().isOk())
+                        .andExpect(jsonPath("$.size").value(2))
                         .andExpect(jsonPath("$.content.length()").value(1)));
 
         show("Booking detail", "GET", bookingPath, null,
@@ -92,7 +103,7 @@ class BookingApiIntegrationTests extends AccountAuthorizationTestSupport {
                 "equipmentChoice", "SELF_PROVIDED",
                 "passengers", List.of(Map.of("fullName", "P1"), Map.of("fullName", "P2"), Map.of("fullName", "P3")));
         show("Overbooking is rejected", "POST", "/api/v1/bookings", tooMany,
-                authPost("/api/v1/bookings", tooMany, customerSession)
+                authPost("/api/v1/bookings", tooMany, strangerSession)
                         .andExpect(status().isConflict())
                         .andExpect(jsonPath("$.code").value("INSUFFICIENT_SEATS")));
 
@@ -117,7 +128,7 @@ class BookingApiIntegrationTests extends AccountAuthorizationTestSupport {
                 "itemQuantities", Map.of(Long.toString(individualLineId), 1),
                 "passengers", List.of(Map.of("fullName", "P1")));
         MvcResult equipmentBookingResult = show("Book a combo plus the same item individually", "POST", "/api/v1/bookings", withPackage,
-                authPost("/api/v1/bookings", withPackage, customerSession)
+                authPost("/api/v1/bookings", withPackage, strangerSession)
                         .andExpect(status().isCreated())
                         .andExpect(jsonPath("$.price.basePriceVnd").value(2000000))
                         .andExpect(jsonPath("$.price.equipmentFeeVnd").value(370000))
@@ -129,14 +140,14 @@ class BookingApiIntegrationTests extends AccountAuthorizationTestSupport {
                 select sum(ri.quantity) from trekking.equipment_reservation_items ri
                 join trekking.equipment_reservations r on r.id=ri.reservation_id where r.booking_id=?
                 """, Integer.class, equipmentBookingId)).isEqualTo(3);
-        authPost("/api/v1/bookings", withPackage, customerSession).andExpect(status().isOk());
+        authPost("/api/v1/bookings", withPackage, strangerSession).andExpect(status().isOk());
         Map<String, Object> changedRetry = Map.of("idempotencyKey", "demo-key-3", "scheduleId", scheduleId,
                 "equipmentChoice", "TOUR_PACKAGE", "packageQuantities", Map.of(Long.toString(packageId), 1),
                 "itemQuantities", Map.of(Long.toString(individualLineId), 2),
                 "passengers", List.of(Map.of("fullName", "P1")));
-        authPost("/api/v1/bookings", changedRetry, customerSession).andExpect(status().isConflict())
+        authPost("/api/v1/bookings", changedRetry, strangerSession).andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("IDEMPOTENCY_KEY_REUSED"));
-        authPost("/api/v1/bookings/" + equipmentBookingId + "/cancel", Map.of("reason", "Test cleanup"), customerSession)
+        authPost("/api/v1/bookings/" + equipmentBookingId + "/cancel", Map.of("reason", "Test cleanup"), strangerSession)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("CANCELLED"));
 
@@ -177,6 +188,89 @@ class BookingApiIntegrationTests extends AccountAuthorizationTestSupport {
     private ResultActions authPatch(String path, Object body, IssuedTokens tokens) throws Exception {
         return mvc.perform(patch(path).header("Authorization", "Bearer " + access(tokens))
                 .contentType("application/json").content(json.writeValueAsString(body)));
+    }
+
+    @Test
+    void concurrentRetriesCreateOneBookingAndReturnTheSameId() throws Exception {
+        long admin = account("admin@example.invalid", "admin");
+        long customer = account("customer@example.invalid", "customer");
+        long scheduleId = publishedSchedule(admin, 5);
+        IssuedTokens tokens = session(customer);
+        Map<String, Object> request = Map.of("idempotencyKey", "concurrent-retry", "scheduleId", scheduleId,
+                "equipmentChoice", "SELF_PROVIDED", "passengers", List.of(Map.of("fullName", "Passenger")));
+        List<MvcResult> results = concurrentCreates(request, tokens, request, tokens);
+        assertThat(results).extracting(result -> result.getResponse().getStatus())
+                .containsExactlyInAnyOrder(201, 200);
+        assertThat(json.readTree(results.get(0).getResponse().getContentAsString()).get("id").asLong())
+                .isEqualTo(json.readTree(results.get(1).getResponse().getContentAsString()).get("id").asLong());
+        assertThat(jdbc.queryForObject("select count(*) from trekking.bookings where customer_id = ?",
+                Integer.class, customer)).isEqualTo(1);
+    }
+
+    @Test
+    void concurrentKeysForOneCustomerCannotCreateTwoLiveHolds() throws Exception {
+        long admin = account("admin@example.invalid", "admin");
+        long customer = account("customer@example.invalid", "customer");
+        long scheduleId = publishedSchedule(admin, 5);
+        long secondScheduleId = jdbc.queryForObject("""
+                insert into trekking.tour_schedules(tour_id, starts_at, ends_at, capacity,
+                    base_price_vnd, deposit_percent, balance_due_at, meeting_point)
+                select tour_id, starts_at, ends_at, capacity, base_price_vnd, deposit_percent,
+                    balance_due_at, meeting_point from trekking.tour_schedules where id = ? returning id
+                """, Long.class, scheduleId);
+        IssuedTokens tokens = session(customer);
+        Map<String, Object> first = Map.of("idempotencyKey", "first-hold", "scheduleId", scheduleId,
+                "equipmentChoice", "SELF_PROVIDED", "passengers", List.of(Map.of("fullName", "Passenger")));
+        Map<String, Object> second = Map.of("idempotencyKey", "second-hold", "scheduleId", secondScheduleId,
+                "equipmentChoice", "SELF_PROVIDED", "passengers", List.of(Map.of("fullName", "Passenger")));
+        List<MvcResult> results = concurrentCreates(first, tokens, second, tokens);
+        assertThat(results).extracting(result -> result.getResponse().getStatus())
+                .containsExactlyInAnyOrder(201, 409);
+        MvcResult rejected = results.stream().filter(result -> result.getResponse().getStatus() == 409)
+                .findFirst().orElseThrow();
+        assertThat(json.readTree(rejected.getResponse().getContentAsString()).get("code").asString())
+                .isEqualTo("ACTIVE_BOOKING_HOLD_EXISTS");
+    }
+
+    @Test
+    void concurrentCustomersReusingOneKeyReceiveAConflict() throws Exception {
+        long admin = account("admin@example.invalid", "admin");
+        long customer = account("customer@example.invalid", "customer");
+        long other = account("other@example.invalid", "customer");
+        long scheduleId = publishedSchedule(admin, 1);
+        Map<String, Object> request = Map.of("idempotencyKey", "shared-key", "scheduleId", scheduleId,
+                "equipmentChoice", "SELF_PROVIDED", "passengers", List.of(Map.of("fullName", "Passenger")));
+        List<MvcResult> results = concurrentCreates(request, session(customer), request, session(other));
+        assertThat(results).extracting(result -> result.getResponse().getStatus())
+                .containsExactlyInAnyOrder(201, 409);
+        MvcResult rejected = results.stream().filter(result -> result.getResponse().getStatus() == 409)
+                .findFirst().orElseThrow();
+        assertThat(json.readTree(rejected.getResponse().getContentAsString()).get("code").asString())
+                .isEqualTo("IDEMPOTENCY_KEY_REUSED");
+    }
+
+    private List<MvcResult> concurrentCreates(Map<String, Object> first, IssuedTokens firstSession,
+                                               Map<String, Object> second, IssuedTokens secondSession) throws Exception {
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var firstResult = executor.submit(() -> {
+                ready.countDown();
+                if (!start.await(10, TimeUnit.SECONDS)) throw new AssertionError("Start timed out");
+                return authPost("/api/v1/bookings", first, firstSession).andReturn();
+            });
+            var secondResult = executor.submit(() -> {
+                ready.countDown();
+                if (!start.await(10, TimeUnit.SECONDS)) throw new AssertionError("Start timed out");
+                return authPost("/api/v1/bookings", second, secondSession).andReturn();
+            });
+            try {
+                assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+            } finally {
+                start.countDown();
+            }
+            return List.of(firstResult.get(30, TimeUnit.SECONDS), secondResult.get(30, TimeUnit.SECONDS));
+        }
     }
 
     private long publishedSchedule(long adminId, int capacity) {
