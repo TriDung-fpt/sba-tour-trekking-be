@@ -70,7 +70,6 @@ public class RagController {
                           "Pass tourId to re-embed a single tour, type='documents' for RAG documents, or type='all' for everything."
     )
     @PostMapping("/ingest")
-    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Map<String, Object>> ingest(@RequestBody(required = false) IngestionRequest request) {
         int chunks;
         if (request != null && request.tourId() != null) {

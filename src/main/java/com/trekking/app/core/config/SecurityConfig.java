@@ -72,6 +72,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/v1/ai/chat").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/ai/chat/stream").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/ai/chat/stream").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/ai/ingest").permitAll()
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html", "/error").permitAll()
                         .anyRequest().authenticated())
                 .exceptionHandling(e -> e.authenticationEntryPoint(errors).accessDeniedHandler(errors))
