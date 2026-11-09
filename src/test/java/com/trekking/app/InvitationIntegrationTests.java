@@ -105,8 +105,9 @@ class InvitationIntegrationTests extends AccountAuthorizationTestSupport {
         assertThat(jdbc.queryForObject("select active from trekking.guides where account_id = ?", Boolean.class, invited)).isTrue();
         assertThat(jdbc.queryForObject("select count(*) from trekking.guides where account_id = ?", Integer.class, invited)).isEqualTo(1);
         clearCooldown();
-        authPost(STAFF + "/" + invited + "/resend", Map.of(), token).andExpect(status().isNotFound());
-        authPost(guidePath() + "/" + invited + "/resend", Map.of(), token).andExpect(status().isAccepted());
+        authPost("/api/v1/admin/staff/invitations/" + invited + "/resend", Map.of(), token).andExpect(status().isNotFound());
+        authPost("/api/v1/admin/guides/invitations/" + invited + "/resend", Map.of(), token).andExpect(status().isNotFound());
+        authPost("/api/v1/auth/resend-account-activation", Map.of("email", EMAIL), token).andExpect(status().isAccepted());
         activate(code()).andExpect(status().isOk());
     }
 
@@ -134,8 +135,7 @@ class InvitationIntegrationTests extends AccountAuthorizationTestSupport {
         assertThat(countEmail()).isEqualTo(1);
         verifyNoInteractions(invitationsMail);
         doCallRealMethod().when(invitationStore).issue(anyString(), anyString(), anyString());
-        authPost(STAFF + "/" + accountId + "/resend", Map.of(), token).andExpect(status().isAccepted())
-                .andExpect(jsonPath("$.deliveryStatus").value("sent"));
+        authPost("/api/v1/auth/resend-account-activation", Map.of("email", EMAIL), token).andExpect(status().isAccepted());
         activate(code()).andExpect(status().isOk());
     }
 
@@ -149,15 +149,14 @@ class InvitationIntegrationTests extends AccountAuthorizationTestSupport {
         long invited = id();
         String hash = passwordHash(invited);
         assertThat(redis.hasKey(challenge())).isFalse();
-        authPost(STAFF + "/" + invited + "/resend", Map.of(), token).andExpect(status().isTooManyRequests());
+        authPost("/api/v1/auth/resend-account-activation", Map.of("email", EMAIL), token).andExpect(status().isAccepted());
         clearCooldown();
         doNothing().when(invitationsMail).send(anyString(), anyString());
-        authPost(STAFF + "/" + invited + "/resend", Map.of(), token).andExpect(status().isAccepted())
-                .andExpect(jsonPath("$.deliveryStatus").value("sent"));
+        authPost("/api/v1/auth/resend-account-activation", Map.of("email", EMAIL), token).andExpect(status().isAccepted());
         assertThat(passwordHash(invited)).isEqualTo(hash);
         activate(code()).andExpect(status().isOk());
         clearCooldown();
-        authPost(STAFF + "/" + invited + "/resend", Map.of(), token).andExpect(status().isConflict());
+        authPost("/api/v1/auth/resend-account-activation", Map.of("email", EMAIL), token).andExpect(status().isAccepted());
         assertThat(passwords.matches(INITIAL_PASSWORD, passwordHash(invited))).isTrue();
     }
 
@@ -171,11 +170,11 @@ class InvitationIntegrationTests extends AccountAuthorizationTestSupport {
         redis.opsForHash().put(challenge(), "hash", oldHash);
         for (int i = 0; i < 4; i++) {
             clearCooldown();
-            authPost(STAFF + "/" + invited + "/resend", Map.of(), token).andExpect(status().isAccepted());
+            authPost("/api/v1/auth/resend-account-activation", Map.of("email", EMAIL), token).andExpect(status().isAccepted());
         }
         assertThat(redis.opsForHash().get(challenge(), "hash")).isNotEqualTo(oldHash);
         clearCooldown();
-        authPost(STAFF + "/" + invited + "/resend", Map.of(), token).andExpect(status().isTooManyRequests());
+        authPost("/api/v1/auth/resend-account-activation", Map.of("email", EMAIL), token).andExpect(status().isAccepted());
         verify(invitationsMail, times(5)).send(eq(EMAIL), anyString());
         activate(code()).andExpect(status().isOk());
     }
@@ -191,7 +190,7 @@ class InvitationIntegrationTests extends AccountAuthorizationTestSupport {
         activate(code).andExpect(status().isBadRequest());
         assertThat(redis.hasKey(challenge())).isFalse();
         clearCooldown();
-        authPost(STAFF + "/" + id() + "/resend", Map.of(), token).andExpect(status().isAccepted());
+        authPost("/api/v1/auth/resend-account-activation", Map.of("email", EMAIL), token).andExpect(status().isAccepted());
         assertThat(redis.getExpire(challenge())).isBetween(295L, 300L);
         redis.expire(challenge(), Duration.ZERO);
         activate(code()).andExpect(status().isBadRequest());
@@ -431,7 +430,7 @@ class InvitationIntegrationTests extends AccountAuthorizationTestSupport {
         jdbc.update("insert into trekking.account_roles(account_id, role) values (?, 'guide')", invited);
         activate(oldCode).andExpect(status().isBadRequest());
         clearCooldown();
-        authPost(guidePath() + "/" + invited + "/resend", Map.of(), token).andExpect(status().isAccepted());
+        authPost("/api/v1/auth/resend-account-activation", Map.of("email", EMAIL), token).andExpect(status().isAccepted());
         activate(code()).andExpect(status().isOk());
     }
 

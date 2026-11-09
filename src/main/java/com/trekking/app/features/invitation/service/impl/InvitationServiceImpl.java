@@ -122,24 +122,6 @@ public class InvitationServiceImpl implements InvitationService {
         return deliver(pending);
     }
 
-    @Override
-    public InvitationResponse resendStaff(long accountId) { return resend(accountId, RoleType.ADMIN); }
-
-    @Override
-    public InvitationResponse resendGuide(long accountId) { return resend(accountId, RoleType.GUIDE); }
-
-    private InvitationResponse resend(long accountId, RoleType expectedRole) {
-        Pending pending = transactions.execute(status -> {
-            authorization.require(Permission.ACCOUNT_ROLES_WRITE);
-            var account = accounts.lockById(accountId).orElseThrow(InvitationServiceImpl::notFound);
-            Pending current = pending(account);
-            if (expectedRole != current.role()) throw notFound();
-            audit(authorization.currentAccountId(), accountId, "INVITATION_RESEND_REQUESTED", current.role());
-            return current;
-        });
-        return deliver(pending);
-    }
-
     private InvitationResponse deliver(Pending pending) {
         // PostgreSQL has committed before Redis/mail; a failed delivery leaves a resumable invitation.
         String code = crypto.otp();

@@ -7,7 +7,6 @@ import com.trekking.app.features.invitation.service.InvitationService;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
-import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -24,18 +23,6 @@ public class InvitationController {
     @SecurityRequirement(name = "bearerAuth")
     public InvitationResponse invite(@Valid @RequestBody InvitationRequests.Invite request) {
         return invitations.invite(request);
-    }
-
-    @PostMapping("/api/v1/admin/staff/invitations/{accountId}/resend")
-    @ResponseStatus(HttpStatus.ACCEPTED)
-    @SecurityRequirement(name = "bearerAuth")
-    public InvitationResponse resendStaff(@PathVariable long accountId) { return invitations.resendStaff(accountId); }
-
-    @PostMapping("/api/v1/admin/guides/invitations/{accountId}/resend")
-    @ResponseStatus(HttpStatus.ACCEPTED)
-    @SecurityRequirement(name = "bearerAuth")
-    public InvitationResponse resendGuide(@PathVariable long accountId) {
-        return invitations.resendGuide(accountId);
     }
 
     @PostMapping("/api/v1/auth/activate-account")
