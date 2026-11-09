@@ -11,7 +11,16 @@ import org.springframework.data.repository.query.Param;
 public interface AccountRoleRepository extends JpaRepository<AccountRole, AccountRoleId> {
     List<AccountRole> findAllByAccountId(Long accountId);
 
-    // Raw role text so a leftover archived label cannot fail enum mapping for the whole page.
-    @Query(value = "select account_id, role from trekking.account_roles where account_id in (:ids)", nativeQuery = true)
-    List<Object[]> findRoleLabelsByAccountIds(@Param("ids") Collection<Long> ids);
+    @Query("""
+            select r.accountId as accountId,
+                   str(r.role) as roleLabel
+            from AccountRole r
+            where r.accountId in :ids
+            """)
+    List<AccountRoleLabel> findRoleLabelsByAccountIds(@Param("ids") Collection<Long> ids);
+
+    interface AccountRoleLabel {
+        Long getAccountId();
+        String getRoleLabel();
+    }
 }

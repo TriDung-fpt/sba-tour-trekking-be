@@ -16,7 +16,7 @@ public interface ReviewRepository extends JpaRepository<Review, Long>, JpaSpecif
     Optional<Review> findByBookingId(long bookingId);
 
     @Query("""
-            select distinct r from Review r
+            select r from Review r
             join fetch r.booking b
             join fetch b.schedule s
             join fetch s.tour
@@ -26,7 +26,7 @@ public interface ReviewRepository extends JpaRepository<Review, Long>, JpaSpecif
     List<Review> findDetailsByIds(@Param("ids") Collection<Long> ids);
 
     @Query("""
-            select distinct r from Review r
+            select r from Review r
             join fetch r.booking b
             join fetch b.schedule s
             join fetch s.tour
@@ -37,37 +37,33 @@ public interface ReviewRepository extends JpaRepository<Review, Long>, JpaSpecif
 
     @Query(value = """
             select r from Review r
-            where r.status = :status
-              and exists (
-                  select 1 from Booking b
-                  join b.schedule s
-                  where b.id = r.bookingId and s.tourId = :tourId
-              )
+            join r.booking b
+            join b.schedule s
+            where s.tourId = :tourId and r.status = :status
             """,
             countQuery = """
             select count(r) from Review r
-            where r.status = :status
-              and exists (
-                  select 1 from Booking b
-                  join b.schedule s
-                  where b.id = r.bookingId and s.tourId = :tourId
-              )
+            join r.booking b
+            join b.schedule s
+            where s.tourId = :tourId and r.status = :status
             """)
     Page<Review> findVisibleByTourId(@Param("tourId") long tourId, @Param("status") ReviewStatus status, Pageable pageable);
 
     @Query("""
             select coalesce(avg(r.tourRating), 0.0)
-            from Review r, Booking b, TourSchedule s
-            where r.bookingId = b.id and b.scheduleId = s.id
-              and s.tourId = :tourId and r.status = :status
+            from Review r
+            join r.booking b
+            join b.schedule s
+            where s.tourId = :tourId and r.status = :status
             """)
     Double averageTourRating(@Param("tourId") long tourId, @Param("status") ReviewStatus status);
 
     @Query("""
             select count(r)
-            from Review r, Booking b, TourSchedule s
-            where r.bookingId = b.id and b.scheduleId = s.id
-              and s.tourId = :tourId and r.status = :status
+            from Review r
+            join r.booking b
+            join b.schedule s
+            where s.tourId = :tourId and r.status = :status
             """)
-    long countByTourIdAndStatus(@Param("tourId") long tourId, @Param("status") ReviewStatus status);
+    long countReviewsForTourAndStatus(@Param("tourId") long tourId, @Param("status") ReviewStatus status);
 }

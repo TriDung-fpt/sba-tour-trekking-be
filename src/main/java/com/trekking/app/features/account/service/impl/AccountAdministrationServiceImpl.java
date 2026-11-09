@@ -251,9 +251,8 @@ public class AccountAdministrationServiceImpl implements AccountAdministrationSe
     private Map<Long, List<String>> roleLabels(Collection<Long> accountIds) {
         if (accountIds.isEmpty()) return Map.of();
         var grouped = new LinkedHashMap<Long, List<String>>();
-        for (Object[] row : roles.findRoleLabelsByAccountIds(accountIds)) {
-            long accountId = ((Number) row[0]).longValue();
-            grouped.computeIfAbsent(accountId, ignored -> new ArrayList<>()).add(String.valueOf(row[1]));
+        for (var row : roles.findRoleLabelsByAccountIds(accountIds)) {
+            grouped.computeIfAbsent(row.getAccountId(), ignored -> new ArrayList<>()).add(row.getRoleLabel());
         }
         grouped.values().forEach(Collections::sort);
         return grouped;

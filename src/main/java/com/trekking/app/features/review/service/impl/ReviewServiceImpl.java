@@ -186,7 +186,7 @@ public class ReviewServiceImpl implements ReviewService {
         Double averageRaw = reviews.averageTourRating(tourId, ReviewStatus.VISIBLE);
         BigDecimal average = BigDecimal.valueOf(averageRaw == null ? 0d : averageRaw)
                 .setScale(2, RoundingMode.HALF_UP);
-        long reviewCount = reviews.countByTourIdAndStatus(tourId, ReviewStatus.VISIBLE);
+        long reviewCount = reviews.countReviewsForTourAndStatus(tourId, ReviewStatus.VISIBLE);
         return new TourReviewPageResponse(items, result.getNumber(), result.getSize(),
                 result.getTotalElements(), result.getTotalPages(), average, reviewCount);
     }
