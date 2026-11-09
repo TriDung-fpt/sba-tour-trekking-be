@@ -76,17 +76,13 @@ public class InvitationServiceImpl implements InvitationService {
     }
 
     @Override
-    public InvitationResponse inviteStaff(InvitationRequests.Staff request) {
+    public InvitationResponse invite(InvitationRequests.Invite request) {
         authorization.require(Permission.ACCOUNT_ROLES_WRITE);
-        if (!RoleType.ADMIN.getValue().equals(request.role())) {
-            throw new AuthException(HttpStatus.BAD_REQUEST, "INVALID_INVITATION_ROLE", "Internal staff invitations require the admin role");
+        if (request.role() != RoleType.ADMIN && request.role() != RoleType.GUIDE) {
+            throw new AuthException(HttpStatus.BAD_REQUEST, "INVALID_INVITATION_ROLE",
+                    "Invitations are only available for admin and guide roles");
         }
-        return create(request.email(), request.fullName(), request.phone(), RoleType.ADMIN, null);
-    }
-
-    @Override
-    public InvitationResponse inviteGuide(InvitationRequests.Guide request) {
-        return create(request.email(), request.fullName(), request.phone(), RoleType.GUIDE, request.bio());
+        return create(request.email(), request.fullName(), request.phone(), request.role(), request.bio());
     }
 
     private InvitationResponse create(String email, String name, String phone, RoleType role, String bio) {

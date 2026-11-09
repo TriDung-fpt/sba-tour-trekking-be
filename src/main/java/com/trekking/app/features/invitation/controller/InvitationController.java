@@ -19,18 +19,11 @@ public class InvitationController {
 
     public InvitationController(InvitationService invitations) { this.invitations = invitations; }
 
-    @PostMapping("/api/v1/admin/staff/invitations")
+    @PostMapping("/api/v1/admin/invitations")
     @ResponseStatus(HttpStatus.CREATED)
     @SecurityRequirement(name = "bearerAuth")
-    public InvitationResponse staff(@Valid @RequestBody InvitationRequests.Staff request) {
-        return invitations.inviteStaff(request);
-    }
-
-    @PostMapping("/api/v1/admin/guides/invitations")
-    @ResponseStatus(HttpStatus.CREATED)
-    @SecurityRequirement(name = "bearerAuth")
-    public InvitationResponse guide(@Valid @RequestBody InvitationRequests.Guide request) {
-        return invitations.inviteGuide(request);
+    public InvitationResponse invite(@Valid @RequestBody InvitationRequests.Invite request) {
+        return invitations.invite(request);
     }
 
     @PostMapping("/api/v1/admin/staff/invitations/{accountId}/resend")

@@ -33,7 +33,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @AutoConfigureMockMvc
 class InvitationIntegrationTests extends AccountAuthorizationTestSupport {
-    private static final String STAFF = "/api/v1/admin/staff/invitations";
+    private static final String STAFF = "/api/v1/admin/invitations";
     private static final String ACTIVATE = "/api/v1/auth/activate-account";
     private static final String EMAIL = "invited@example.invalid";
     private static final String INITIAL_PASSWORD = "InitialPassword123!";
@@ -97,8 +97,8 @@ class InvitationIntegrationTests extends AccountAuthorizationTestSupport {
     void adminInvitesInternalGuideWithoutCompanyAndIgnoresInjectedRoleOrCompany() throws Exception {
         long admin = account("admin@example.invalid", "admin");
         var token = session(admin);
-        var request = Map.of("email", EMAIL, "fullName", "Invited Guide", "role", "admin", "companyId", 999999);
-        authPost(guidePath(), request, token).andExpect(status().isCreated()).andExpect(jsonPath("$.role").value("guide"))
+        var request = Map.of("email", EMAIL, "fullName", "Invited Guide", "role", "guide", "companyId", 999999);
+        authPost(STAFF, request, token).andExpect(status().isCreated()).andExpect(jsonPath("$.role").value("guide"))
                 .andExpect(jsonPath("$.companyId").doesNotExist());
         long invited = id();
         assertThat(jdbc.queryForList("select role from trekking.account_roles where account_id = ?", String.class, invited)).containsExactly("guide");
@@ -287,7 +287,7 @@ class InvitationIntegrationTests extends AccountAuthorizationTestSupport {
     @Test
     void guideActivationRejectsDisabledAndMissingSystemGuideProfiles() throws Exception {
         long admin = account("admin@example.invalid", "admin");
-        authPost(guidePath(), Map.of("email", EMAIL, "fullName", "Guide"), session(admin)).andExpect(status().isCreated());
+        authPost(STAFF, Map.of("email", EMAIL, "fullName", "Guide", "role", "guide"), session(admin)).andExpect(status().isCreated());
         String code = code();
         jdbc.update("update trekking.guides set active = false where account_id = ?", id());
         activate(code).andExpect(status().isBadRequest());
@@ -302,7 +302,7 @@ class InvitationIntegrationTests extends AccountAuthorizationTestSupport {
         var token = session(admin);
         jdbc.execute("alter table trekking.audit_logs add constraint qa_invitation_audit check (action <> 'INVITATION_CREATED')");
         try {
-            authPost(guidePath(), Map.of("email", EMAIL, "fullName", "Guide"), token).andExpect(status().isServiceUnavailable());
+        authPost(STAFF, Map.of("email", EMAIL, "fullName", "Guide", "role", "guide"), token).andExpect(status().isServiceUnavailable());
             assertThat(countEmail()).isZero();
             assertThat(jdbc.queryForObject("select count(*) from trekking.guides", Integer.class)).isZero();
             assertThat(jdbc.queryForObject("select count(*) from trekking.account_roles where role = 'guide'", Integer.class)).isZero();
@@ -362,7 +362,7 @@ class InvitationIntegrationTests extends AccountAuthorizationTestSupport {
     @ValueSource(strings = {"customer", "guide"})
     void nonAdminsCannotInviteGuides(String role) throws Exception {
         long caller = account("caller@example.invalid", role);
-        authPost(guidePath(), Map.of("email", EMAIL, "fullName", "Guide"), session(caller)).andExpect(status().isForbidden());
+        authPost(STAFF, Map.of("email", EMAIL, "fullName", "Guide", "role", "guide"), session(caller)).andExpect(status().isForbidden());
         assertThat(countEmail()).isZero();
     }
 
@@ -412,7 +412,7 @@ class InvitationIntegrationTests extends AccountAuthorizationTestSupport {
     @Test
     void replacingGuideProfileInvalidatesOutstandingActivationContext() throws Exception {
         long admin = account("admin@example.invalid", "admin");
-        authPost(guidePath(), Map.of("email", EMAIL, "fullName", "Guide"), session(admin)).andExpect(status().isCreated());
+        authPost(STAFF, Map.of("email", EMAIL, "fullName", "Guide", "role", "guide"), session(admin)).andExpect(status().isCreated());
         long invited = id();
         String code = code();
         jdbc.update("delete from trekking.guides where account_id = ?", invited);
@@ -424,7 +424,7 @@ class InvitationIntegrationTests extends AccountAuthorizationTestSupport {
     void revokedAndRegrantedGuideRoleRequiresNewActivationCode() throws Exception {
         long admin = account("admin@example.invalid", "admin");
         var token = session(admin);
-        authPost(guidePath(), Map.of("email", EMAIL, "fullName", "Guide"), token).andExpect(status().isCreated());
+        authPost(STAFF, Map.of("email", EMAIL, "fullName", "Guide", "role", "guide"), token).andExpect(status().isCreated());
         long invited = id();
         String oldCode = code();
         jdbc.update("delete from trekking.account_roles where account_id = ? and role = 'guide'", invited);
@@ -440,7 +440,7 @@ class InvitationIntegrationTests extends AccountAuthorizationTestSupport {
     private ResultActions activate(String code) throws Exception {
         return mvc.perform(post(ACTIVATE).with(realCsrf()).contentType("application/json").content(json.writeValueAsString(activation(code))));
     }
-    private String guidePath() { return "/api/v1/admin/guides/invitations"; }
+    private String guidePath() { return STAFF; }
     private long id() { return jdbc.queryForObject("select id from trekking.app_accounts where email = ?", Long.class, EMAIL); }
     private int countEmail() { return jdbc.queryForObject("select count(*) from trekking.app_accounts where email = ?", Integer.class, EMAIL); }
     private String passwordHash(long accountId) { return jdbc.queryForObject("select password_hash from trekking.app_accounts where id = ?", String.class, accountId); }
