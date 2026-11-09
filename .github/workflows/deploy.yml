@@ -93,4 +93,15 @@ jobs:
             "${VPS_USER}@${VPS_HOST}" \
             "whoami && hostname && docker ps"
 
-          echo "=== SSH CONNECTION SUCCESS ==="
+          echo "=== Deploy Backend ==="
+          ssh \
+            -i "$HOME/.ssh/id_ed25519" \
+            -o IdentitiesOnly=yes \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o ConnectTimeout=10 \
+            "${VPS_USER}@${VPS_HOST}" \
+            "set -e; cd /opt/myapp; docker compose pull backend; docker compose up -d --no-deps backend; docker compose ps backend"
+
+          echo "=== BACKEND DEPLOY SUCCESS ==="
