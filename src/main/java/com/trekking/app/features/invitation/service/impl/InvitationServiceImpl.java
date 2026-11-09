@@ -165,6 +165,25 @@ public class InvitationServiceImpl implements InvitationService {
     }
 
     @Override
+    public void resendActivation(InvitationRequests.ResendActivation request) {
+        Pending pending;
+        try {
+            pending = transactions.execute(status -> accounts.lockByEmail(request.email())
+                    .map(this::pending)
+                    .orElse(null));
+        } catch (AuthException ex) {
+            // Keep the public response generic for unknown, ineligible, or already-activated accounts.
+            return;
+        }
+        if (pending == null) return;
+        try {
+            deliver(pending);
+        } catch (AuthException ex) {
+            // The invitation store enforces its resend cooldown; do not expose account eligibility.
+        }
+    }
+
+    @Override
     public void activate(InvitationRequests.Activate request) {
         transactions.executeWithoutResult(status -> {
             var account = accounts.lockByEmail(request.email()).orElseThrow(InvitationServiceImpl::invalidOtp);

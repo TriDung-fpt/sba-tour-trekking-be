@@ -7,5 +7,6 @@ public interface InvitationService {
     InvitationResponse invite(InvitationRequests.Invite request);
     InvitationResponse resendStaff(long accountId);
     InvitationResponse resendGuide(long accountId);
+    void resendActivation(InvitationRequests.ResendActivation request);
     void activate(InvitationRequests.Activate request);
 }

@@ -34,6 +34,10 @@ public final class InvitationRequests {
         public Invite { email = AuthInputNormalizer.email(email); fullName = AuthInputNormalizer.fullName(fullName); }
     }
 
+    public record ResendActivation(@NotBlank @Email @Size(max = 254) String email) {
+        public ResendActivation { email = AuthInputNormalizer.email(email); }
+    }
+
 
     public record Activate(@NotBlank @Email @Size(max = 254) String email,
                            @NotBlank @Pattern(regexp = "[0-9]{6}") String otp,

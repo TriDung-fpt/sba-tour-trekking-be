@@ -43,4 +43,11 @@ public class InvitationController {
         invitations.activate(request);
         return new MessageResponse("Account activated; sign in with your new password");
     }
+
+    @PostMapping("/api/v1/auth/resend-account-activation")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public MessageResponse resendActivation(@Valid @RequestBody InvitationRequests.ResendActivation request) {
+        invitations.resendActivation(request);
+        return new MessageResponse("If the account is eligible, an activation code will be sent");
+    }
 }
