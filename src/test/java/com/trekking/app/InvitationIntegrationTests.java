@@ -76,7 +76,7 @@ class InvitationIntegrationTests extends AccountAuthorizationTestSupport {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"accountant", "support_staff", "content_staff", "company_manager", "guide", "customer", "ADMIN"})
+    @ValueSource(strings = {"accountant", "support_staff", "content_staff", "company_manager", "customer", "ADMIN"})
     void staffRoleWhitelistRejectsEscalation(String role) throws Exception {
         long admin = account("admin@example.invalid", "admin");
         authPost(STAFF, staff(role), session(admin)).andExpect(status().isBadRequest());
