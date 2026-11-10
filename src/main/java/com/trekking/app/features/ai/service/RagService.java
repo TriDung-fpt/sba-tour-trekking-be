@@ -18,18 +18,20 @@ import java.util.List;
  *
  * <h3>Flow</h3>
  * <ol>
- *   <li><b>Retrieve</b> – embed the user question, similarity-search pgvector</li>
- *   <li><b>Augment</b> – inject retrieved chunks into the system prompt as {context}</li>
- *   <li><b>Generate</b> – send the augmented prompt to the LLM (LM Studio)</li>
+ * <li><b>Retrieve</b> – embed the user question, similarity-search
+ * pgvector</li>
+ * <li><b>Augment</b> – inject retrieved chunks into the system prompt as
+ * {context}</li>
+ * <li><b>Generate</b> – send the augmented prompt to the LLM (LM Studio)</li>
  * </ol>
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class RagService {
-
-    private final VectorStore   vectorStore;
-    private final ChatClient    ragChatClient;
+    private final QuestionScopeValidator scopeValidator;
+    private final VectorStore vectorStore;
+    private final ChatClient ragChatClient;
     private final RagProperties ragProperties;
 
     /**
@@ -41,23 +43,33 @@ public class RagService {
      */
     public ChatResponse ask(String question, String sessionId) {
         log.debug("RAG query: '{}'", question);
+        if (!scopeValidator.isInScope(question)) {
 
+            log.info("Rejected out-of-scope question: '{}'", question);
+
+            return new ChatResponse(
+                    "Xin lỗi, tôi là trợ lý tư vấn tour trekking của hệ thống. "
+                            + "Tôi chỉ có thể hỗ trợ bạn về các tour trekking, "
+                            + "thông tin chuyến đi và kinh nghiệm chuẩn bị cho "
+                            + "hoạt động trekking. Bạn có muốn tìm hiểu hoặc "
+                            + "lựa chọn một tour trekking không?",
+                    List.of(),
+                    sessionId);
+        }
         // ── 1. Retrieve ────────────────────────────────────────────────────
         List<Document> relevantDocs = vectorStore.similaritySearch(
                 SearchRequest.builder()
                         .query(question)
                         .topK(ragProperties.topK())
                         .similarityThreshold(ragProperties.similarityThreshold())
-                        .build()
-        );
+                        .build());
 
         if (relevantDocs.isEmpty()) {
             log.warn("No relevant documents found for query: '{}'", question);
             return new ChatResponse(
-                    "I'm sorry, I couldn't find any relevant tour information for your question.",
+                    "Xin lỗi, hiện tại tôi chưa tìm thấy thông tin tour phù hợp với yêu cầu của bạn. Bạn có thể cho tôi biết thêm về sở thích (độ khó, địa điểm mong muốn, hoặc thời gian) để tôi hỗ trợ tốt hơn nhé!",
                     List.of(),
-                    sessionId
-            );
+                    sessionId);
         }
 
         log.debug("Retrieved {} relevant document chunks", relevantDocs.size());
@@ -81,13 +93,25 @@ public class RagService {
     }
 
     /**
-     * Ask a question and stream tokens back in real-time via Server-Sent Events (SSE).
+     * Ask a question and stream tokens back in real-time via Server-Sent Events
+     * (SSE).
      *
      * @param question user's natural-language question
      * @return reactive Flux of string tokens
      */
     public reactor.core.publisher.Flux<String> askStream(String question) {
         log.debug("RAG streaming query: '{}'", question);
+        if (!scopeValidator.isInScope(question)) {
+
+            log.info("Rejected out-of-scope streaming question: '{}'", question);
+
+            return reactor.core.publisher.Flux.just(
+                    "Xin lỗi, tôi là trợ lý tư vấn tour trekking của hệ thống. "
+                            + "Tôi chỉ có thể hỗ trợ bạn về các tour trekking, "
+                            + "thông tin chuyến đi và kinh nghiệm chuẩn bị cho "
+                            + "hoạt động trekking. Bạn có muốn tìm hiểu hoặc "
+                            + "lựa chọn một tour trekking không?");
+        }
 
         // ── 1. Retrieve ────────────────────────────────────────────────────
         List<Document> relevantDocs = vectorStore.similaritySearch(
@@ -95,12 +119,12 @@ public class RagService {
                         .query(question)
                         .topK(ragProperties.topK())
                         .similarityThreshold(ragProperties.similarityThreshold())
-                        .build()
-        );
+                        .build());
 
         if (relevantDocs.isEmpty()) {
             log.warn("No relevant documents found for streaming query: '{}'", question);
-            return reactor.core.publisher.Flux.just("I'm sorry, I couldn't find any relevant tour information for your question.");
+            return reactor.core.publisher.Flux.just(
+                    "Xin lỗi, hiện tại tôi chưa tìm thấy thông tin tour phù hợp với yêu cầu của bạn. Bạn có thể cho tôi biết thêm về sở thích (độ khó, địa điểm mong muốn, hoặc thời gian) để tôi hỗ trợ tốt hơn nhé!");
         }
 
         // ── 2. Augment ─────────────────────────────────────────────────────
@@ -128,14 +152,15 @@ public class RagService {
     }
 
     private DocumentSource toDocumentSource(Document doc) {
-        String title   = String.valueOf(doc.getMetadata().getOrDefault("title", "Unknown Tour"));
+        String title = String.valueOf(doc.getMetadata().getOrDefault("title", "Unknown Tour"));
         String excerpt = truncate(doc.getText(), 200);
-        double score   = doc.getScore() != null ? doc.getScore() : 0.0;
+        double score = doc.getScore() != null ? doc.getScore() : 0.0;
         return new DocumentSource(title, excerpt, score);
     }
 
     private String truncate(String text, int maxChars) {
-        if (text == null) return "";
+        if (text == null)
+            return "";
         return text.length() <= maxChars ? text : text.substring(0, maxChars) + "…";
     }
 }

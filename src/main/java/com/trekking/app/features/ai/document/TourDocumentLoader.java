@@ -41,7 +41,8 @@ public class TourDocumentLoader {
                 COALESCE(locs.locations_summary, '') AS locations_summary,
                 eq.title AS equipment_package_title,
                 eq.included_items AS equipment_included,
-                eq.personal_items_to_bring AS equipment_to_bring
+                eq.personal_items_to_bring AS equipment_to_bring,
+                COALESCE(media.cover_image_url, '') AS cover_image_url
             FROM trekking.tours t
             LEFT JOIN trekking.policy_versions pv ON pv.id = t.cancellation_policy_version_id
             LEFT JOIN LATERAL (
@@ -57,6 +58,13 @@ public class TourDocumentLoader {
                 JOIN trekking.locations l ON l.id = tl.location_id
                 WHERE tl.tour_id = t.id
             ) locs ON true
+            LEFT JOIN LATERAL (
+                SELECT url AS cover_image_url
+                FROM trekking.tour_media m
+                WHERE m.tour_id = t.id AND m.media_type = 'image'
+                ORDER BY m.is_cover DESC, m.display_order ASC, m.id ASC
+                LIMIT 1
+            ) media ON true
             LEFT JOIN trekking.tour_equipment_packages eq ON eq.tour_id = t.id
             WHERE t.status = 'published'
             ORDER BY t.id
@@ -87,7 +95,8 @@ public class TourDocumentLoader {
                 rs.getString("locations_summary"),
                 rs.getString("equipment_package_title"),
                 rs.getString("equipment_included"),
-                rs.getString("equipment_to_bring")
+                rs.getString("equipment_to_bring"),
+                rs.getString("cover_image_url")
         ));
     }
 
@@ -112,7 +121,8 @@ public class TourDocumentLoader {
                 rs.getString("locations_summary"),
                 rs.getString("equipment_package_title"),
                 rs.getString("equipment_included"),
-                rs.getString("equipment_to_bring")
+                rs.getString("equipment_to_bring"),
+                rs.getString("cover_image_url")
         ), tourId);
     }
 
@@ -127,13 +137,13 @@ public class TourDocumentLoader {
                                  long equipmentFeeVnd, int maxParticipants,
                                  String cancellationPolicy, String locationsSummary,
                                  String equipmentPackageTitle, String equipmentIncluded,
-                                 String equipmentToBring) {
+                                 String equipmentToBring, String coverImageUrl) {
 
         String content = buildContent(title, description, durationDays, difficultyLevel,
                 requiredExperience, includedServices, excludedServices,
                 pricePerPerson, equipmentFeeVnd, maxParticipants,
                 cancellationPolicy, locationsSummary, equipmentPackageTitle,
-                equipmentIncluded, equipmentToBring);
+                equipmentIncluded, equipmentToBring, coverImageUrl);
 
         Map<String, Object> metadata = new HashMap<>();
         metadata.put("tour_id", id);
@@ -143,6 +153,7 @@ public class TourDocumentLoader {
         metadata.put("price_per_person", pricePerPerson);
         metadata.put("equipment_fee_vnd", equipmentFeeVnd);
         metadata.put("locations", locationsSummary != null ? locationsSummary : "");
+        metadata.put("cover_image_url", coverImageUrl != null ? coverImageUrl : "");
         metadata.put("source", "db:trekking.tours");
 
         return new Document(content, metadata);
@@ -154,7 +165,8 @@ public class TourDocumentLoader {
                                  long pricePerPerson, long equipmentFeeVnd,
                                  int maxParticipants, String cancellationPolicy,
                                  String locationsSummary, String equipmentPackageTitle,
-                                 String equipmentIncluded, String equipmentToBring) {
+                                 String equipmentIncluded, String equipmentToBring,
+                                 String coverImageUrl) {
         StringBuilder sb = new StringBuilder();
         // --- English labels (for English queries) ---
         sb.append("Tour: ").append(title != null ? title : "").append("\n");
@@ -191,6 +203,9 @@ public class TourDocumentLoader {
         }
         if (cancellationPolicy != null && !cancellationPolicy.isBlank()) {
             sb.append("Cancellation policy / Chính sách huỷ: ").append(cancellationPolicy).append("\n");
+        }
+        if (coverImageUrl != null && !coverImageUrl.isBlank()) {
+            sb.append("Image / Ảnh: ").append(coverImageUrl).append("\n");
         }
         if (description != null && !description.isBlank()) {
             sb.append("\nDescription / Mô tả:\n").append(description).append("\n");
