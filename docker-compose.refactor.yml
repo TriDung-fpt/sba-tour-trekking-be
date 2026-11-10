@@ -1,0 +1,29 @@
+services:
+  backend-refactor:
+    build: .
+    image: sba-tour-trekking-be-backend-refactor:local
+    container_name: wetrek-backend-refactor
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      SERVER_PORT: 8080
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: trekking_refactor
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      AUTH_REDIS_PREFIX: "wetrek:refactor:auth:"
+      AI_BASE_URL: ${AI_BASE_URL:-http://host.docker.internal:1234}
+    ports:
+      - "127.0.0.1:8081:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/api/v1/auth/csrf"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 60s
