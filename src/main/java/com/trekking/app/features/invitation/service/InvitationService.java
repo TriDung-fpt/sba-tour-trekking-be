@@ -4,9 +4,7 @@ import com.trekking.app.features.invitation.dto.request.InvitationRequests;
 import com.trekking.app.features.invitation.dto.response.InvitationResponse;
 
 public interface InvitationService {
-    InvitationResponse inviteStaff(InvitationRequests.Staff request);
-    InvitationResponse inviteGuide(InvitationRequests.Guide request);
-    InvitationResponse resendStaff(long accountId);
-    InvitationResponse resendGuide(long accountId);
+    InvitationResponse invite(InvitationRequests.Invite request);
+    void resendActivation(InvitationRequests.ResendActivation request);
     void activate(InvitationRequests.Activate request);
 }

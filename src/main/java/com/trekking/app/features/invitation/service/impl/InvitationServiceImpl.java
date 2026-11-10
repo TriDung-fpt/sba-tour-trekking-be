@@ -76,17 +76,13 @@ public class InvitationServiceImpl implements InvitationService {
     }
 
     @Override
-    public InvitationResponse inviteStaff(InvitationRequests.Staff request) {
+    public InvitationResponse invite(InvitationRequests.Invite request) {
         authorization.require(Permission.ACCOUNT_ROLES_WRITE);
-        if (!RoleType.ADMIN.getValue().equals(request.role())) {
-            throw new AuthException(HttpStatus.BAD_REQUEST, "INVALID_INVITATION_ROLE", "Internal staff invitations require the admin role");
+        if (request.role() != RoleType.ADMIN && request.role() != RoleType.GUIDE) {
+            throw new AuthException(HttpStatus.BAD_REQUEST, "INVALID_INVITATION_ROLE",
+                    "Invitations are only available for admin and guide roles");
         }
-        return create(request.email(), request.fullName(), request.phone(), RoleType.ADMIN, null);
-    }
-
-    @Override
-    public InvitationResponse inviteGuide(InvitationRequests.Guide request) {
-        return create(request.email(), request.fullName(), request.phone(), RoleType.GUIDE, request.bio());
+        return create(request.email(), request.fullName(), request.phone(), request.role(), request.bio());
     }
 
     private InvitationResponse create(String email, String name, String phone, RoleType role, String bio) {
@@ -126,24 +122,6 @@ public class InvitationServiceImpl implements InvitationService {
         return deliver(pending);
     }
 
-    @Override
-    public InvitationResponse resendStaff(long accountId) { return resend(accountId, RoleType.ADMIN); }
-
-    @Override
-    public InvitationResponse resendGuide(long accountId) { return resend(accountId, RoleType.GUIDE); }
-
-    private InvitationResponse resend(long accountId, RoleType expectedRole) {
-        Pending pending = transactions.execute(status -> {
-            authorization.require(Permission.ACCOUNT_ROLES_WRITE);
-            var account = accounts.lockById(accountId).orElseThrow(InvitationServiceImpl::notFound);
-            Pending current = pending(account);
-            if (expectedRole != current.role()) throw notFound();
-            audit(authorization.currentAccountId(), accountId, "INVITATION_RESEND_REQUESTED", current.role());
-            return current;
-        });
-        return deliver(pending);
-    }
-
     private InvitationResponse deliver(Pending pending) {
         // PostgreSQL has committed before Redis/mail; a failed delivery leaves a resumable invitation.
         String code = crypto.otp();
@@ -166,6 +144,25 @@ public class InvitationServiceImpl implements InvitationService {
         }
         return new InvitationResponse(pending.accountId(), pending.email(), pending.role().getValue(),
                 true, delivery);
+    }
+
+    @Override
+    public void resendActivation(InvitationRequests.ResendActivation request) {
+        Pending pending;
+        try {
+            pending = transactions.execute(status -> accounts.lockByEmail(request.email())
+                    .map(this::pending)
+                    .orElse(null));
+        } catch (AuthException ex) {
+            // Keep the public response generic for unknown, ineligible, or already-activated accounts.
+            return;
+        }
+        if (pending == null) return;
+        try {
+            deliver(pending);
+        } catch (AuthException ex) {
+            // The invitation store enforces its resend cooldown; do not expose account eligibility.
+        }
     }
 
     @Override

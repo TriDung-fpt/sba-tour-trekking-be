@@ -33,7 +33,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @AutoConfigureMockMvc
 class InvitationIntegrationTests extends AccountAuthorizationTestSupport {
-    private static final String STAFF = "/api/v1/admin/staff/invitations";
+    private static final String STAFF = "/api/v1/admin/invitations";
     private static final String ACTIVATE = "/api/v1/auth/activate-account";
     private static final String EMAIL = "invited@example.invalid";
     private static final String INITIAL_PASSWORD = "InitialPassword123!";
@@ -76,7 +76,7 @@ class InvitationIntegrationTests extends AccountAuthorizationTestSupport {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"accountant", "support_staff", "content_staff", "company_manager", "guide", "customer", "ADMIN"})
+    @ValueSource(strings = {"accountant", "support_staff", "content_staff", "company_manager", "customer", "ADMIN"})
     void staffRoleWhitelistRejectsEscalation(String role) throws Exception {
         long admin = account("admin@example.invalid", "admin");
         authPost(STAFF, staff(role), session(admin)).andExpect(status().isBadRequest());
@@ -97,16 +97,17 @@ class InvitationIntegrationTests extends AccountAuthorizationTestSupport {
     void adminInvitesInternalGuideWithoutCompanyAndIgnoresInjectedRoleOrCompany() throws Exception {
         long admin = account("admin@example.invalid", "admin");
         var token = session(admin);
-        var request = Map.of("email", EMAIL, "fullName", "Invited Guide", "role", "admin", "companyId", 999999);
-        authPost(guidePath(), request, token).andExpect(status().isCreated()).andExpect(jsonPath("$.role").value("guide"))
+        var request = Map.of("email", EMAIL, "fullName", "Invited Guide", "role", "guide", "companyId", 999999);
+        authPost(STAFF, request, token).andExpect(status().isCreated()).andExpect(jsonPath("$.role").value("guide"))
                 .andExpect(jsonPath("$.companyId").doesNotExist());
         long invited = id();
         assertThat(jdbc.queryForList("select role from trekking.account_roles where account_id = ?", String.class, invited)).containsExactly("guide");
         assertThat(jdbc.queryForObject("select active from trekking.guides where account_id = ?", Boolean.class, invited)).isTrue();
         assertThat(jdbc.queryForObject("select count(*) from trekking.guides where account_id = ?", Integer.class, invited)).isEqualTo(1);
         clearCooldown();
-        authPost(STAFF + "/" + invited + "/resend", Map.of(), token).andExpect(status().isNotFound());
-        authPost(guidePath() + "/" + invited + "/resend", Map.of(), token).andExpect(status().isAccepted());
+        authPost("/api/v1/admin/staff/invitations/" + invited + "/resend", Map.of(), token).andExpect(status().isNotFound());
+        authPost("/api/v1/admin/guides/invitations/" + invited + "/resend", Map.of(), token).andExpect(status().isNotFound());
+        authPost("/api/v1/auth/resend-account-activation", Map.of("email", EMAIL), token).andExpect(status().isAccepted());
         activate(code()).andExpect(status().isOk());
     }
 
@@ -134,8 +135,7 @@ class InvitationIntegrationTests extends AccountAuthorizationTestSupport {
         assertThat(countEmail()).isEqualTo(1);
         verifyNoInteractions(invitationsMail);
         doCallRealMethod().when(invitationStore).issue(anyString(), anyString(), anyString());
-        authPost(STAFF + "/" + accountId + "/resend", Map.of(), token).andExpect(status().isAccepted())
-                .andExpect(jsonPath("$.deliveryStatus").value("sent"));
+        authPost("/api/v1/auth/resend-account-activation", Map.of("email", EMAIL), token).andExpect(status().isAccepted());
         activate(code()).andExpect(status().isOk());
     }
 
@@ -149,15 +149,14 @@ class InvitationIntegrationTests extends AccountAuthorizationTestSupport {
         long invited = id();
         String hash = passwordHash(invited);
         assertThat(redis.hasKey(challenge())).isFalse();
-        authPost(STAFF + "/" + invited + "/resend", Map.of(), token).andExpect(status().isTooManyRequests());
+        authPost("/api/v1/auth/resend-account-activation", Map.of("email", EMAIL), token).andExpect(status().isAccepted());
         clearCooldown();
         doNothing().when(invitationsMail).send(anyString(), anyString());
-        authPost(STAFF + "/" + invited + "/resend", Map.of(), token).andExpect(status().isAccepted())
-                .andExpect(jsonPath("$.deliveryStatus").value("sent"));
+        authPost("/api/v1/auth/resend-account-activation", Map.of("email", EMAIL), token).andExpect(status().isAccepted());
         assertThat(passwordHash(invited)).isEqualTo(hash);
         activate(code()).andExpect(status().isOk());
         clearCooldown();
-        authPost(STAFF + "/" + invited + "/resend", Map.of(), token).andExpect(status().isConflict());
+        authPost("/api/v1/auth/resend-account-activation", Map.of("email", EMAIL), token).andExpect(status().isAccepted());
         assertThat(passwords.matches(INITIAL_PASSWORD, passwordHash(invited))).isTrue();
     }
 
@@ -171,11 +170,11 @@ class InvitationIntegrationTests extends AccountAuthorizationTestSupport {
         redis.opsForHash().put(challenge(), "hash", oldHash);
         for (int i = 0; i < 4; i++) {
             clearCooldown();
-            authPost(STAFF + "/" + invited + "/resend", Map.of(), token).andExpect(status().isAccepted());
+            authPost("/api/v1/auth/resend-account-activation", Map.of("email", EMAIL), token).andExpect(status().isAccepted());
         }
         assertThat(redis.opsForHash().get(challenge(), "hash")).isNotEqualTo(oldHash);
         clearCooldown();
-        authPost(STAFF + "/" + invited + "/resend", Map.of(), token).andExpect(status().isTooManyRequests());
+        authPost("/api/v1/auth/resend-account-activation", Map.of("email", EMAIL), token).andExpect(status().isAccepted());
         verify(invitationsMail, times(5)).send(eq(EMAIL), anyString());
         activate(code()).andExpect(status().isOk());
     }
@@ -191,7 +190,7 @@ class InvitationIntegrationTests extends AccountAuthorizationTestSupport {
         activate(code).andExpect(status().isBadRequest());
         assertThat(redis.hasKey(challenge())).isFalse();
         clearCooldown();
-        authPost(STAFF + "/" + id() + "/resend", Map.of(), token).andExpect(status().isAccepted());
+        authPost("/api/v1/auth/resend-account-activation", Map.of("email", EMAIL), token).andExpect(status().isAccepted());
         assertThat(redis.getExpire(challenge())).isBetween(295L, 300L);
         redis.expire(challenge(), Duration.ZERO);
         activate(code()).andExpect(status().isBadRequest());
@@ -287,7 +286,7 @@ class InvitationIntegrationTests extends AccountAuthorizationTestSupport {
     @Test
     void guideActivationRejectsDisabledAndMissingSystemGuideProfiles() throws Exception {
         long admin = account("admin@example.invalid", "admin");
-        authPost(guidePath(), Map.of("email", EMAIL, "fullName", "Guide"), session(admin)).andExpect(status().isCreated());
+        authPost(STAFF, Map.of("email", EMAIL, "fullName", "Guide", "role", "guide"), session(admin)).andExpect(status().isCreated());
         String code = code();
         jdbc.update("update trekking.guides set active = false where account_id = ?", id());
         activate(code).andExpect(status().isBadRequest());
@@ -302,7 +301,7 @@ class InvitationIntegrationTests extends AccountAuthorizationTestSupport {
         var token = session(admin);
         jdbc.execute("alter table trekking.audit_logs add constraint qa_invitation_audit check (action <> 'INVITATION_CREATED')");
         try {
-            authPost(guidePath(), Map.of("email", EMAIL, "fullName", "Guide"), token).andExpect(status().isServiceUnavailable());
+        authPost(STAFF, Map.of("email", EMAIL, "fullName", "Guide", "role", "guide"), token).andExpect(status().isServiceUnavailable());
             assertThat(countEmail()).isZero();
             assertThat(jdbc.queryForObject("select count(*) from trekking.guides", Integer.class)).isZero();
             assertThat(jdbc.queryForObject("select count(*) from trekking.account_roles where role = 'guide'", Integer.class)).isZero();
@@ -362,7 +361,7 @@ class InvitationIntegrationTests extends AccountAuthorizationTestSupport {
     @ValueSource(strings = {"customer", "guide"})
     void nonAdminsCannotInviteGuides(String role) throws Exception {
         long caller = account("caller@example.invalid", role);
-        authPost(guidePath(), Map.of("email", EMAIL, "fullName", "Guide"), session(caller)).andExpect(status().isForbidden());
+        authPost(STAFF, Map.of("email", EMAIL, "fullName", "Guide", "role", "guide"), session(caller)).andExpect(status().isForbidden());
         assertThat(countEmail()).isZero();
     }
 
@@ -412,7 +411,7 @@ class InvitationIntegrationTests extends AccountAuthorizationTestSupport {
     @Test
     void replacingGuideProfileInvalidatesOutstandingActivationContext() throws Exception {
         long admin = account("admin@example.invalid", "admin");
-        authPost(guidePath(), Map.of("email", EMAIL, "fullName", "Guide"), session(admin)).andExpect(status().isCreated());
+        authPost(STAFF, Map.of("email", EMAIL, "fullName", "Guide", "role", "guide"), session(admin)).andExpect(status().isCreated());
         long invited = id();
         String code = code();
         jdbc.update("delete from trekking.guides where account_id = ?", invited);
@@ -424,14 +423,14 @@ class InvitationIntegrationTests extends AccountAuthorizationTestSupport {
     void revokedAndRegrantedGuideRoleRequiresNewActivationCode() throws Exception {
         long admin = account("admin@example.invalid", "admin");
         var token = session(admin);
-        authPost(guidePath(), Map.of("email", EMAIL, "fullName", "Guide"), token).andExpect(status().isCreated());
+        authPost(STAFF, Map.of("email", EMAIL, "fullName", "Guide", "role", "guide"), token).andExpect(status().isCreated());
         long invited = id();
         String oldCode = code();
         jdbc.update("delete from trekking.account_roles where account_id = ? and role = 'guide'", invited);
         jdbc.update("insert into trekking.account_roles(account_id, role) values (?, 'guide')", invited);
         activate(oldCode).andExpect(status().isBadRequest());
         clearCooldown();
-        authPost(guidePath() + "/" + invited + "/resend", Map.of(), token).andExpect(status().isAccepted());
+        authPost("/api/v1/auth/resend-account-activation", Map.of("email", EMAIL), token).andExpect(status().isAccepted());
         activate(code()).andExpect(status().isOk());
     }
 
@@ -440,7 +439,7 @@ class InvitationIntegrationTests extends AccountAuthorizationTestSupport {
     private ResultActions activate(String code) throws Exception {
         return mvc.perform(post(ACTIVATE).with(realCsrf()).contentType("application/json").content(json.writeValueAsString(activation(code))));
     }
-    private String guidePath() { return "/api/v1/admin/guides/invitations"; }
+    private String guidePath() { return STAFF; }
     private long id() { return jdbc.queryForObject("select id from trekking.app_accounts where email = ?", Long.class, EMAIL); }
     private int countEmail() { return jdbc.queryForObject("select count(*) from trekking.app_accounts where email = ?", Integer.class, EMAIL); }
     private String passwordHash(long accountId) { return jdbc.queryForObject("select password_hash from trekking.app_accounts where id = ?", String.class, accountId); }
