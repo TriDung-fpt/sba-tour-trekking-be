@@ -126,7 +126,14 @@ public class TourServiceImpl implements TourService {
     @Transactional(readOnly = true)
     public Page<TourSummaryResponse> list(String query, DifficultyLevel difficulty, Integer durationDays,
                                          TourStatus status, int page, int size) {
-        return listFiltered(query, difficulty, durationDays, status, null, page, size);
+        return list(query, difficulty, durationDays, status, null, page, size);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<TourSummaryResponse> list(String query, DifficultyLevel difficulty, Integer durationDays,
+                                         TourStatus status, LocalDate departureDate, int page, int size) {
+        return listFiltered(query, difficulty, durationDays, status, departureDate, page, size);
     }
 
     private Page<TourSummaryResponse> listFiltered(String query, DifficultyLevel difficulty, Integer durationDays,

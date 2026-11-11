@@ -46,10 +46,10 @@ public class TourController {
         if (TourReadAccess.isPublic(authentication)) {
             return tours.listPublic(query, difficulty, durationDays, departureDate, page, size);
         }
-        if (query == null && difficulty == null && durationDays == null && status == null) {
+        if (query == null && difficulty == null && durationDays == null && departureDate == null && status == null) {
             return tours.list(page, size);
         }
-        return tours.list(query, difficulty, durationDays, status, page, size);
+        return tours.list(query, difficulty, durationDays, status, departureDate, page, size);
     }
 
     @GetMapping("/{tourId}")

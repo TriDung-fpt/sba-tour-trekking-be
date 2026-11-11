@@ -22,6 +22,7 @@ public interface TourService {
     TourDetailResponse create(CreateTourRequest request);
     Page<TourSummaryResponse> list(int page, int size);
     Page<TourSummaryResponse> list(String query, DifficultyLevel difficulty, Integer durationDays, TourStatus status, int page, int size);
+    Page<TourSummaryResponse> list(String query, DifficultyLevel difficulty, Integer durationDays, TourStatus status, LocalDate departureDate, int page, int size);
     Page<TourSummaryResponse> listPublic(String query, DifficultyLevel difficulty, Integer durationDays, int page, int size);
     Page<TourSummaryResponse> listPublic(String query, DifficultyLevel difficulty, Integer durationDays, LocalDate departureDate, int page, int size);
     TourDetailResponse read(long tourId);
