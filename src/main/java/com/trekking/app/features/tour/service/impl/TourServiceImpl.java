@@ -157,8 +157,8 @@ public class TourServiceImpl implements TourService {
                         cb.equal(schedule.get("tourId"), root.get("id")),
                         cb.equal(schedule.get("status"), ScheduleStatus.SCHEDULED),
                         cb.greaterThanOrEqualTo(schedule.<OffsetDateTime>get("startsAt"), now),
-                        cb.lessThan(schedule.<OffsetDateTime>get("startsAt"), dayEnd),
-                        cb.greaterThan(schedule.<OffsetDateTime>get("endsAt"), dayStart));
+                        cb.greaterThanOrEqualTo(schedule.<OffsetDateTime>get("startsAt"), dayStart),
+                        cb.lessThan(schedule.<OffsetDateTime>get("startsAt"), dayEnd));
                 return cb.exists(matchingSchedule);
             });
         }
