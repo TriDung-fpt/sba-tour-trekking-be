@@ -46,6 +46,7 @@ import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.nio.charset.StandardCharsets;
@@ -200,6 +201,12 @@ public class BookingServiceImpl implements BookingService {
         }
         if (criteria.customerId() != null) {
             filter = filter.and((root, q, cb) -> cb.equal(root.get("customerId"), criteria.customerId()));
+        }
+        if (criteria.query() != null && !criteria.query().isBlank()) {
+            String pattern = "%" + criteria.query().trim().toLowerCase(Locale.ROOT) + "%";
+            filter = filter.and((root, q, cb) -> cb.or(
+                    cb.like(cb.lower(root.get("bookingCode")), pattern),
+                    cb.like(cb.lower(root.join("customer").get("fullName")), pattern)));
         }
         if (criteria.createdFrom() != null) {
             filter = filter.and((root, q, cb) -> cb.greaterThanOrEqualTo(root.get("createdAt"), criteria.createdFrom()));

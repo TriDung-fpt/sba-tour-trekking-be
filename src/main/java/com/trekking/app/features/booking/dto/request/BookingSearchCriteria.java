@@ -10,6 +10,7 @@ public record BookingSearchCriteria(
         Long scheduleId,
         Long tourId,
         Long customerId,
+        String query,
         @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime createdFrom,
         @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime createdTo
 ) {}
