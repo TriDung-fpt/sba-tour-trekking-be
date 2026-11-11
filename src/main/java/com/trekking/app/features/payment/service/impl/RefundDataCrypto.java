@@ -19,6 +19,9 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class RefundDataCrypto {
+    /** Associated-data labels for the payer account captured from the payment provider. */
+    public static final String PAYER_ACCOUNT_FIELD = "customer_payments.payer_account";
+    public static final String PAYER_NAME_FIELD = "customer_payments.payer_name";
     private static final String VERSION = "v1:";
     private static final int NONCE_BYTES = 12;
     private static final int TAG_BITS = 128;
@@ -70,6 +73,10 @@ public class RefundDataCrypto {
         } catch (Exception ex) {
             throw new IllegalStateException("Unable to decrypt refund data", ex);
         }
+    }
+
+    public boolean isConfigured() {
+        return key != null;
     }
 
     private void requireKey() {

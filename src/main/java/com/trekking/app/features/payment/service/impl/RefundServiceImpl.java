@@ -106,14 +106,38 @@ public class RefundServiceImpl implements RefundService {
         Booking booking = bookings.findById(bookingId).orElseThrow(RefundServiceImpl::notFound);
         Calculation calc = calculate(booking, OffsetDateTime.now(clock));
         if (calc.amountVnd() <= 0) return null;
-        if (account == null) {
-            throw new AuthException(HttpStatus.BAD_REQUEST, "REFUND_ACCOUNT_REQUIRED",
-                    "A bank account is required to receive the refund for this booking");
+        Optional<PayerAccount> payer = payerAccount(bookingId);
+        String bankBin;
+        String bankName;
+        String accountNumber;
+        String holderName;
+        if (payer.isPresent()) {
+            // Money returns to the account it came from; a different destination is rejected, never silently used.
+            PayerAccount source = payer.get();
+            if (account != null && !(account.bankBin().trim().equals(source.bankBin())
+                    && account.accountNumber().trim().equals(source.accountNumber()))) {
+                throw new AuthException(HttpStatus.BAD_REQUEST, "REFUND_ACCOUNT_LOCKED",
+                        "Refunds are returned to the paying account ****" + last4(source.accountNumber()));
+            }
+            bankBin = source.bankBin();
+            bankName = source.bankName() != null ? source.bankName()
+                    : account != null ? account.bankName().trim() : source.bankBin();
+            accountNumber = source.accountNumber();
+            holderName = source.accountName() != null ? source.accountName()
+                    : account != null ? account.accountHolderName().trim() : null;
+        } else {
+            if (account == null) {
+                throw new AuthException(HttpStatus.BAD_REQUEST, "REFUND_ACCOUNT_REQUIRED",
+                        "A bank account is required to receive the refund for this booking");
+            }
+            bankBin = account.bankBin().trim();
+            bankName = account.bankName().trim();
+            accountNumber = account.accountNumber().trim();
+            holderName = account.accountHolderName().trim();
         }
         if (refunds.existsByBookingIdAndStatusIn(bookingId, OPEN_STATUSES)) {
             throw conflict("REFUND_ALREADY_REQUESTED", "This booking already has an open refund request");
         }
-        String accountNumber = account.accountNumber().trim();
         var refund = new RefundRequest();
         refund.setBookingId(bookingId);
         refund.setRequestedBy(customerId);
@@ -124,11 +148,12 @@ public class RefundServiceImpl implements RefundService {
         refund.setRequestedAmountVnd(calc.amountVnd());
         refund.setStatus(RefundStatus.REQUESTED);
         refund.setIdempotencyKey("refund-" + UUID.randomUUID());
-        refund.setBankBin(account.bankBin().trim());
-        refund.setBankName(account.bankName().trim());
-        refund.setRecipientNameCiphertext(crypto.encrypt(account.accountHolderName().trim(), NAME_FIELD));
+        refund.setBankBin(bankBin);
+        refund.setBankName(bankName);
+        refund.setRecipientNameCiphertext(holderName == null ? null : crypto.encrypt(holderName, NAME_FIELD));
         refund.setRecipientAccountCiphertext(crypto.encrypt(accountNumber, ACCOUNT_FIELD));
-        refund.setRecipientAccountLast4(accountNumber.substring(accountNumber.length() - 4));
+        refund.setRecipientAccountLast4(last4(accountNumber));
+        refund.setRecipientFromPayment(payer.isPresent());
         refunds.save(refund);
         audit(customerId, refund, "REFUND_REQUESTED", null);
         notifyCustomer(refund);
@@ -140,8 +165,11 @@ public class RefundServiceImpl implements RefundService {
     public RefundPreviewResponse previewForCustomer(long bookingId) {
         Booking booking = ownedBooking(bookingId);
         Calculation calc = calculate(booking, OffsetDateTime.now(clock));
+        Optional<PayerAccount> payer = calc.amountVnd() > 0 ? payerAccount(bookingId) : Optional.empty();
         return new RefundPreviewResponse(bookingId, calc.paidVnd(), calc.refundedVnd(), calc.hoursBeforeDeparture(),
-                calc.percent(), calc.amountVnd(), calc.tiersConfigured(), calc.amountVnd() > 0);
+                calc.percent(), calc.amountVnd(), calc.tiersConfigured(), calc.amountVnd() > 0 && payer.isEmpty(),
+                payer.isPresent(), payer.map(PayerAccount::bankName).orElse(null),
+                payer.map(source -> "****" + last4(source.accountNumber())).orElse(null));
     }
 
     @Override
@@ -172,7 +200,8 @@ public class RefundServiceImpl implements RefundService {
                 refund.getBankBin(), crypto.decrypt(refund.getRecipientAccountCiphertext(), ACCOUNT_FIELD),
                 crypto.decrypt(refund.getRecipientNameCiphertext(), NAME_FIELD), refund.getPayoutReferenceId(),
                 refund.getPayoutId(), paid.map(CustomerRefund::getTransactionReference).orElse(null),
-                paid.map(CustomerRefund::getEvidenceUrl).orElse(null), payOs.isPayoutConfigured());
+                paid.map(CustomerRefund::getEvidenceUrl).orElse(null), payOs.isPayoutConfigured(),
+                refund.isRecipientFromPayment());
     }
 
     @Override
@@ -415,6 +444,34 @@ public class RefundServiceImpl implements RefundService {
     }
 
     /** Total money the customer actually paid (accepted payments only). */
+    /**
+     * The single source account of every accepted payment, as reported by the provider's signed webhook.
+     * Empty when any payment lacks it (manual or bank omitted it) or payments came from different accounts;
+     * the customer then enters the destination and finance reviews it.
+     */
+    private Optional<PayerAccount> payerAccount(long bookingId) {
+        if (!crypto.isConfigured()) return Optional.empty();
+        PayerAccount source = null;
+        for (CustomerPayment payment : payments.findAllByBookingIdAndAllocationStatus(bookingId, AllocationStatus.ACCEPTED)) {
+            if (payment.getPayerBankBin() == null || payment.getPayerAccountCiphertext() == null) return Optional.empty();
+            var current = new PayerAccount(payment.getPayerBankBin(), payment.getPayerBankName(),
+                    crypto.decrypt(payment.getPayerAccountCiphertext(), RefundDataCrypto.PAYER_ACCOUNT_FIELD),
+                    crypto.decrypt(payment.getPayerNameCiphertext(), RefundDataCrypto.PAYER_NAME_FIELD));
+            if (source == null) {
+                source = current;
+            } else if (!source.bankBin().equals(current.bankBin()) || !source.accountNumber().equals(current.accountNumber())) {
+                return Optional.empty();
+            }
+        }
+        return Optional.ofNullable(source);
+    }
+
+    private static String last4(String accountNumber) {
+        return accountNumber.substring(accountNumber.length() - 4);
+    }
+
+    private record PayerAccount(String bankBin, String bankName, String accountNumber, String accountName) {}
+
     private long sumAcceptedPayments(long bookingId) {
         long total = 0;
         for (CustomerPayment payment : payments.findAllByBookingIdAndAllocationStatus(bookingId, AllocationStatus.ACCEPTED)) {

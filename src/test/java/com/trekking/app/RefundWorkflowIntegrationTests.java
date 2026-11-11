@@ -2,11 +2,13 @@ package com.trekking.app;
 
 import com.trekking.app.features.payment.service.RefundMailSender;
 import com.trekking.app.features.payment.service.RefundMailSender.RefundNotice;
+import com.trekking.app.features.payment.service.impl.RefundDataCrypto;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -23,6 +25,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 class RefundWorkflowIntegrationTests extends AccountAuthorizationTestSupport {
     @MockitoBean RefundMailSender refundMail;
+    @Autowired RefundDataCrypto crypto;
 
     private static final String ACCOUNT_NUMBER = "0123456789";
     private static final Map<String, Object> REFUND_ACCOUNT = Map.of(
@@ -144,6 +147,66 @@ class RefundWorkflowIntegrationTests extends AccountAuthorizationTestSupport {
                 .andExpect(jsonPath("$.approvedAmountVnd").value(25000));
         authGet("/api/v1/admin/refunds?status=completed", recorderSession).andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].id").value(refundId));
+    }
+
+    @Test
+    void refundIsLockedToTheAccountThatPaid() throws Exception {
+        jdbc.update("""
+                update trekking.customer_payments set payer_bank_bin = '970415', payer_bank_name = 'VietinBank',
+                    payer_account_ciphertext = ?, payer_name_ciphertext = ?, payer_account_last4 = '4321'
+                where booking_id = ?
+                """, crypto.encrypt("9876543210004321", RefundDataCrypto.PAYER_ACCOUNT_FIELD),
+                crypto.encrypt("TRAN THI B", RefundDataCrypto.PAYER_NAME_FIELD), booking);
+        var customerSession = session(customer);
+        authGet("/api/v1/bookings/" + booking + "/refund-preview", customerSession).andExpect(status().isOk())
+                .andExpect(jsonPath("$.refundAccountRequired").value(false))
+                .andExpect(jsonPath("$.refundAccountLocked").value(true))
+                .andExpect(jsonPath("$.lockedBankName").value("VietinBank"))
+                .andExpect(jsonPath("$.lockedAccountMasked").value("****4321"));
+
+        // A different destination is rejected and nothing changes.
+        authPost("/api/v1/bookings/" + booking + "/cancel",
+                Map.of("reason", "Busy", "refundAccount", REFUND_ACCOUNT), customerSession)
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("REFUND_ACCOUNT_LOCKED"));
+        assertThat(jdbc.queryForObject("select status from trekking.bookings where id = ?", String.class, booking))
+                .isEqualTo("pending_payment");
+
+        var cancelled = authPost("/api/v1/bookings/" + booking + "/cancel", Map.of("reason", "Busy"), customerSession)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.refund.accountNumberMasked").value("****4321"))
+                .andReturn();
+        long refundId = json.readTree(cancelled.getResponse().getContentAsString()).get("refund").get("id").asLong();
+
+        authGet("/api/v1/admin/refunds/" + refundId, session(approver)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.bankBin").value("970415"))
+                .andExpect(jsonPath("$.accountNumber").value("9876543210004321"))
+                .andExpect(jsonPath("$.accountHolderName").value("TRAN THI B"))
+                .andExpect(jsonPath("$.recipientFromPayment").value(true));
+    }
+
+    @Test
+    void paymentsFromDifferentAccountsFallBackToCustomerEnteredAccount() throws Exception {
+        jdbc.update("""
+                update trekking.customer_payments set payer_bank_bin = '970415',
+                    payer_account_ciphertext = ?, payer_account_last4 = '4321' where booking_id = ?
+                """, crypto.encrypt("9876543210004321", RefundDataCrypto.PAYER_ACCOUNT_FIELD), booking);
+        jdbc.update("""
+                insert into trekking.customer_payments(booking_id, provider, transaction_reference, amount_vnd,
+                    allocation_status, received_at, payer_bank_bin, payer_account_ciphertext, payer_account_last4)
+                values (?, 'payos', 'refund-test-payment-2', 10000, 'accepted', current_timestamp, '970436', ?, '1111')
+                """, booking, crypto.encrypt("5555555551111", RefundDataCrypto.PAYER_ACCOUNT_FIELD));
+        var customerSession = session(customer);
+        authGet("/api/v1/bookings/" + booking + "/refund-preview", customerSession).andExpect(status().isOk())
+                .andExpect(jsonPath("$.refundAccountRequired").value(true))
+                .andExpect(jsonPath("$.refundAccountLocked").value(false));
+        var cancelled = authPost("/api/v1/bookings/" + booking + "/cancel",
+                Map.of("reason", "Busy", "refundAccount", REFUND_ACCOUNT), customerSession)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.refund.accountNumberMasked").value("****6789"))
+                .andReturn();
+        long refundId = json.readTree(cancelled.getResponse().getContentAsString()).get("refund").get("id").asLong();
+        authGet("/api/v1/admin/refunds/" + refundId, session(approver)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.recipientFromPayment").value(false));
     }
 
     @Test

@@ -1,11 +1,11 @@
 # Cancel & refund workflow
 
-Migration: `V34__refund_workflow.sql`.
+Migrations: `V34__refund_workflow.sql`, `V36__payment_payer_account.sql` (refund locked to the paying account).
 
 ## Flow
 
 ```
-customer cancels booking (+ bank account)
+customer cancels booking (+ bank account, unless locked to the paying account)
         │  amount = (accepted payments − refunds already paid) × tier % of the booking's cancellation policy
         ▼
    REQUESTED ──reject──▶ REJECTED            (bank details wiped)
@@ -43,8 +43,8 @@ finance applies the written policy when approving.
 
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/api/v1/bookings/{id}/refund-preview` | paid, %, estimated refund, whether a bank account is required |
-| POST | `/api/v1/bookings/{id}/cancel` | `{"reason":"...","refundAccount":{"bankBin":"970436","bankName":"Vietcombank","accountNumber":"0123456789","accountHolderName":"NGUYEN VAN A"}}` — `refundAccount` is required when the estimated refund > 0 (`400 REFUND_ACCOUNT_REQUIRED`) |
+| GET | `/api/v1/bookings/{id}/refund-preview` | paid, %, estimated refund, `refundAccountRequired`, and `refundAccountLocked` + `lockedBankName` + `lockedAccountMasked` when the refund goes back to the paying account |
+| POST | `/api/v1/bookings/{id}/cancel` | `{"reason":"...","refundAccount":{"bankBin":"970436","bankName":"Vietcombank","accountNumber":"0123456789","accountHolderName":"NGUYEN VAN A"}}` — `refundAccount` is required when the estimated refund > 0 and the account is not locked (`400 REFUND_ACCOUNT_REQUIRED`). When locked, omit it; a different account returns `400 REFUND_ACCOUNT_LOCKED` |
 | GET | `/api/v1/bookings/{id}/refund` | latest refund (204 if none); account number masked `****6789` |
 
 ## Finance endpoints (admin)
@@ -58,6 +58,20 @@ finance applies the written policy when approving.
 | POST | `/api/v1/admin/refunds/{id}/manual-transfer` | `{"transactionReference":"FT123","evidenceUrl":"https://...","note":"..."}` |
 | POST | `/api/v1/admin/refunds/{id}/payos-payout` | — (`503 PAYOUT_PROVIDER_UNAVAILABLE` when not configured) |
 | POST | `/api/v1/admin/refunds/{id}/payos-sync` | — |
+
+## Refund locked to the paying account
+
+PayOS payment webhooks carry the signed source account (`counterAccountBankId`, `counterAccountBankName`,
+`counterAccountName`, `counterAccountNumber`). On a successful payment the backend stores it on
+`customer_payments` (BIN/bank name/last 4 in plain text, number and holder name encrypted). It is never written to
+`payment_notices.payload`.
+
+When **every** accepted payment of the booking carries a payer account and they are all the **same** account
+(BIN + number), the refund is locked to it: the preview returns `refundAccountLocked=true`, the customer cancels
+without `refundAccount`, and any other account is rejected with `REFUND_ACCOUNT_LOCKED`. Otherwise (manual
+payment, bank omitted the fields, payments from different accounts, or no encryption key) the customer enters the
+account as before. Finance sees `recipientFromPayment` in `GET /api/v1/admin/refunds/{id}`: `false` means the
+destination is customer-entered and deserves a closer check.
 
 ## Bank data encryption
 

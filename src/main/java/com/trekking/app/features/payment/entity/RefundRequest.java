@@ -80,6 +80,9 @@ public class RefundRequest extends TimestampedEntity {
     @Column(name = "recipient_account_last4", length = 4)
     private String recipientAccountLast4;
 
+    @Column(name = "recipient_from_payment", nullable = false)
+    private boolean recipientFromPayment;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "payout_channel", columnDefinition = "text")
     private RefundChannel payoutChannel;

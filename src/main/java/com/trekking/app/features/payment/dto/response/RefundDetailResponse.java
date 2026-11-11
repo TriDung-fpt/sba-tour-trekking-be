@@ -12,4 +12,5 @@ public record RefundDetailResponse(
         String payoutId,
         String transactionReference,
         String evidenceUrl,
-        boolean payosPayoutAvailable) {}
+        boolean payosPayoutAvailable,
+        boolean recipientFromPayment) {}
