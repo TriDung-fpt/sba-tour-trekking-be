@@ -9,6 +9,7 @@ import com.trekking.app.features.tour.dto.response.ScheduleSummaryResponse;
 import com.trekking.app.features.tour.dto.response.TourDetailResponse;
 import com.trekking.app.features.tour.dto.response.TourSummaryResponse;
 import org.springframework.data.domain.Page;
+import java.time.LocalDate;
 import com.trekking.app.features.tour.enums.DifficultyLevel;
 import com.trekking.app.features.tour.enums.TourStatus;
 
@@ -22,6 +23,7 @@ public interface TourService {
     Page<TourSummaryResponse> list(int page, int size);
     Page<TourSummaryResponse> list(String query, DifficultyLevel difficulty, Integer durationDays, TourStatus status, int page, int size);
     Page<TourSummaryResponse> listPublic(String query, DifficultyLevel difficulty, Integer durationDays, int page, int size);
+    Page<TourSummaryResponse> listPublic(String query, DifficultyLevel difficulty, Integer durationDays, LocalDate departureDate, int page, int size);
     TourDetailResponse read(long tourId);
     TourDetailResponse readPublic(long tourId);
     TourDetailResponse update(long tourId, UpdateTourRequest request);

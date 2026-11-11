@@ -45,6 +45,8 @@ import com.trekking.app.features.tour.dto.request.SaveScheduleDefaultsRequest;
 import com.trekking.app.features.tour.dto.response.ScheduleDefaultsResponse;
 import com.trekking.app.features.tour.service.TourService;
 import java.time.OffsetDateTime;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Locale;
@@ -124,6 +126,11 @@ public class TourServiceImpl implements TourService {
     @Transactional(readOnly = true)
     public Page<TourSummaryResponse> list(String query, DifficultyLevel difficulty, Integer durationDays,
                                          TourStatus status, int page, int size) {
+        return listFiltered(query, difficulty, durationDays, status, null, page, size);
+    }
+
+    private Page<TourSummaryResponse> listFiltered(String query, DifficultyLevel difficulty, Integer durationDays,
+                                                   TourStatus status, LocalDate departureDate, int page, int size) {
         var pageable = pageRequest(page, size);
         if (durationDays != null && durationDays < 1) {
             throw new TourException(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", "Invalid duration",
@@ -138,6 +145,23 @@ public class TourServiceImpl implements TourService {
         if (difficulty != null) filter = filter.and((root, q, cb) -> cb.equal(root.get("difficulty"), difficulty));
         if (durationDays != null) filter = filter.and((root, q, cb) -> cb.equal(root.get("durationDays"), durationDays));
         if (status != null) filter = filter.and((root, q, cb) -> cb.equal(root.get("status"), status));
+        if (departureDate != null) {
+            var zone = ZoneId.of("Asia/Ho_Chi_Minh");
+            var dayStart = departureDate.atStartOfDay(zone).toOffsetDateTime();
+            var dayEnd = departureDate.plusDays(1).atStartOfDay(zone).toOffsetDateTime();
+            var now = OffsetDateTime.now(clock);
+            filter = filter.and((root, q, cb) -> {
+                var matchingSchedule = q.subquery(Long.class);
+                var schedule = matchingSchedule.from(TourSchedule.class);
+                matchingSchedule.select(schedule.get("tourId")).where(
+                        cb.equal(schedule.get("tourId"), root.get("id")),
+                        cb.equal(schedule.get("status"), ScheduleStatus.SCHEDULED),
+                        cb.greaterThanOrEqualTo(schedule.<OffsetDateTime>get("startsAt"), now),
+                        cb.lessThan(schedule.<OffsetDateTime>get("startsAt"), dayEnd),
+                        cb.greaterThan(schedule.<OffsetDateTime>get("endsAt"), dayStart));
+                return cb.exists(matchingSchedule);
+            });
+        }
         return summaries(tours.findAll(filter, pageable));
     }
 
@@ -145,7 +169,14 @@ public class TourServiceImpl implements TourService {
     @Transactional(readOnly = true)
     public Page<TourSummaryResponse> listPublic(String query, DifficultyLevel difficulty, Integer durationDays,
                                                 int page, int size) {
-        return list(query, difficulty, durationDays, TourStatus.PUBLISHED, page, size);
+        return listPublic(query, difficulty, durationDays, null, page, size);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<TourSummaryResponse> listPublic(String query, DifficultyLevel difficulty, Integer durationDays,
+                                                LocalDate departureDate, int page, int size) {
+        return listFiltered(query, difficulty, durationDays, TourStatus.PUBLISHED, departureDate, page, size);
     }
 
     private Page<TourSummaryResponse> summaries(Page<Tour> pageOfTours) {
