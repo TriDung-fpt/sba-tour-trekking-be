@@ -6,6 +6,7 @@ import com.trekking.app.features.tour.dto.request.SaveTourLocationsRequest;
 import com.trekking.app.features.tour.dto.request.CreateLocationRequest;
 import com.trekking.app.features.tour.dto.response.LocationResponse;
 import com.trekking.app.features.tour.entity.TourLocation;
+import com.trekking.app.features.tour.enums.TourStatus;
 import com.trekking.app.features.tour.exception.TourException;
 import com.trekking.app.features.tour.repository.LocationRepository;
 import com.trekking.app.features.tour.repository.TourLocationRepository;
@@ -58,6 +59,18 @@ public class TourLocationServiceImpl implements TourLocationService {
     public List<LocationResponse> listForTour(long tourId) {
         authorization.require(Permission.TOUR_COMPOSE);
         if (!tours.existsById(tourId)) throw notFound();
+        return locationsForTour(tourId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<LocationResponse> listPublicForTour(long tourId) {
+        var tour = tours.findById(tourId).orElseThrow(this::notFound);
+        if (tour.getStatus() != TourStatus.PUBLISHED) throw notFound();
+        return locationsForTour(tourId);
+    }
+
+    private List<LocationResponse> locationsForTour(long tourId) {
         var links = tourLocations.findAllByTourIdOrderByVisitOrderAsc(tourId);
         var byId = locations.findAllById(links.stream().map(TourLocation::getLocationId).toList()).stream()
                 .collect(java.util.stream.Collectors.toMap(com.trekking.app.features.tour.entity.Location::getId,

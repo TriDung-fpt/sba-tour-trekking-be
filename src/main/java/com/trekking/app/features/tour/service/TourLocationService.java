@@ -9,5 +9,6 @@ public interface TourLocationService {
     List<LocationResponse> listAvailable();
     LocationResponse createLocation(CreateLocationRequest request);
     List<LocationResponse> listForTour(long tourId);
+    List<LocationResponse> listPublicForTour(long tourId);
     List<LocationResponse> save(long tourId, SaveTourLocationsRequest request);
 }

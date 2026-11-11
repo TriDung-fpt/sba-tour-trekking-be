@@ -55,7 +55,7 @@ class TourCalendarEquipmentIntegrationTests extends AccountAuthorizationTestSupp
         String end = Instant.now().plus(15, ChronoUnit.DAYS).toString();
         var result = authGet("/api/v1/tours/schedules?start=" + start + "&end=" + end, session(admin))
                 .andExpect(status().isOk()).andReturn();
-        var rows = json.readTree(result.getResponse().getContentAsString());
+        var rows = json.readTree(result.getResponse().getContentAsString()).path("content");
         var selected = rows.findValues("id").stream();
         assertThat(selected.map(node -> node.asLong())).contains(schedule, otherSchedule);
         for (var row : rows) {
@@ -68,7 +68,7 @@ class TourCalendarEquipmentIntegrationTests extends AccountAuthorizationTestSupp
             if (row.get("id").asLong() == otherSchedule) assertThat(row.get("scheduleCount").asLong()).isEqualTo(1);
         }
         authGet("/api/v1/tours/schedules?start=2000-01-01T00:00:00Z&end=2000-01-02T00:00:00Z", session(admin))
-                .andExpect(status().isOk()).andExpect(jsonPath("$").isEmpty());
+                .andExpect(status().isOk()).andExpect(jsonPath("$.content").isEmpty());
     }
 
     @Test

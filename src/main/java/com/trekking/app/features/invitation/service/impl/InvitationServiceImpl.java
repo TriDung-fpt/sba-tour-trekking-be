@@ -172,7 +172,12 @@ public class InvitationServiceImpl implements InvitationService {
             var account = accounts.lockByEmail(request.email()).orElseThrow(InvitationServiceImpl::invalidOtp);
             Pending pending;
             try { pending = pending(account); }
-            catch (AuthException ex) { throw invalidOtp(); }
+            catch (AuthException ex) {
+                // Invalidate a matching invitation code when the account no longer matches
+                // the pending invitation state. A wrong code cannot cancel the stored code.
+                store.cancel(request.email(), otpHash(request.email(), request.otp()));
+                throw invalidOtp();
+            }
             if (!store.consume(request.email(), otpHash(request.email(), request.otp()), pending.context())) throw invalidOtp();
             account.setPasswordHash(passwords.encode(request.newPassword()));
             account.setStatus(AccountStatus.ACTIVE);
