@@ -51,8 +51,11 @@ public class CustomerRefund extends TimestampedEntity {
     @Column(name = "recorded_by", nullable = false)
     private Long recordedBy;
 
-    @Column(name = "evidence_url", nullable = false, columnDefinition = "text")
+    @Column(name = "evidence_url", columnDefinition = "text")
     private String evidenceUrl;
+
+    @Column(name = "payout_id", length = 200)
+    private String payoutId;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "recorded_by", referencedColumnName = "id", insertable = false, updatable = false)

@@ -5,5 +5,5 @@ import com.trekking.app.features.tour.enums.TourStatus;
 
 public record TourSummaryResponse(
         Long id, String title, DifficultyLevel difficulty, Integer durationDays,
-        TourStatus status, String coverImageUrl) {
+        TourStatus status, String coverImageUrl, String code) {
 }

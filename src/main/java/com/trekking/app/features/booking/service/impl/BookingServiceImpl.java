@@ -30,6 +30,10 @@ import com.trekking.app.features.booking.repository.ParticipantRepository;
 import com.trekking.app.features.booking.service.BookingHoldService;
 import com.trekking.app.features.booking.service.BookingService;
 import com.trekking.app.features.equipment.service.EquipmentReservationService;
+import com.trekking.app.features.payment.dto.response.RefundResponse;
+import com.trekking.app.features.payment.service.RefundService;
+import com.trekking.app.features.tour.service.TourCodeService;
+import org.springframework.beans.factory.annotation.Value;
 import com.trekking.app.features.equipment.service.EquipmentHandoverService;
 import com.trekking.app.features.equipment.dto.request.EquipmentHoldRequest;
 import com.trekking.app.features.policy.entity.Policy;
@@ -79,11 +83,16 @@ public class BookingServiceImpl implements BookingService {
     private final Clock clock;
     private final EquipmentReservationService equipmentReservations;
     private final EquipmentHandoverService equipmentHandovers;
+    private final RefundService refunds;
+    private final TourCodeService tourCodes;
+    private final String defaultCodePrefix;
 
     public BookingServiceImpl(BookingRepository bookings, ParticipantRepository participants,
                               BookingScheduleRepository schedules, BookingHoldService holds, BookingMapper mapper,
                               AuthorizationService authorization, Clock clock, EquipmentReservationService equipmentReservations,
-                              EquipmentHandoverService equipmentHandovers) {
+                              EquipmentHandoverService equipmentHandovers, RefundService refunds,
+                              TourCodeService tourCodes,
+                              @Value("${app.booking.code-prefix:BK}") String defaultCodePrefix) {
         this.bookings = bookings;
         this.participants = participants;
         this.schedules = schedules;
@@ -93,6 +102,9 @@ public class BookingServiceImpl implements BookingService {
         this.clock = clock;
         this.equipmentReservations = equipmentReservations;
         this.equipmentHandovers = equipmentHandovers;
+        this.refunds = refunds;
+        this.tourCodes = tourCodes;
+        this.defaultCodePrefix = normalizePrefix(defaultCodePrefix);
     }
 
     @Override
@@ -107,9 +119,8 @@ public class BookingServiceImpl implements BookingService {
             if (booking.getCustomerId() != customerId || !booking.getScheduleId().equals(request.scheduleId())) {
                 throw new BookingException(BookingErrorCode.IDEMPOTENCY_KEY_REUSED);
             }
-            String hash = requestHash(request);
-            if (booking.getEquipmentSnapshot().contains("\"requestHash\"")
-                    && !booking.getEquipmentSnapshot().contains("\"requestHash\":\"" + hash + "\"")) {
+            String storedHash = mapper.requestHash(booking.getEquipmentSnapshot());
+            if (storedHash != null && !storedHash.equals(requestHash(request))) {
                 throw new BookingException(BookingErrorCode.IDEMPOTENCY_KEY_REUSED);
             }
             return new BookingCreateResult(false, detail(booking, booking.getSchedule()));
@@ -140,7 +151,7 @@ public class BookingServiceImpl implements BookingService {
         }
 
         Booking booking = new Booking();
-        booking.setBookingCode(newBookingCode());
+        booking.setBookingCode(newBookingCode(schedule.getTourId()));
         booking.setIdempotencyKey(request.idempotencyKey());
         booking.setCustomerId(customerId);
         booking.setScheduleId(schedule.getId());
@@ -269,7 +280,9 @@ public class BookingServiceImpl implements BookingService {
     public BookingCancellationResponse cancel(long bookingId, CancelBookingRequest request) {
         long customerId = requireCustomer();
         Booking booking = bookings.findOwnedForUpdate(bookingId, customerId).orElseThrow(BookingException::notFound);
-        if (booking.getStatus() == BookingStatus.CANCELLED) return cancellation(booking);
+        if (booking.getStatus() == BookingStatus.CANCELLED) {
+            return cancellation(booking, refunds.latestForCustomer(bookingId));
+        }
         if (booking.getStatus() != BookingStatus.PENDING_PAYMENT && booking.getStatus() != BookingStatus.CONFIRMED) {
             throw new BookingException(BookingErrorCode.INVALID_BOOKING_TRANSITION);
         }
@@ -288,7 +301,9 @@ public class BookingServiceImpl implements BookingService {
         booking.setCancelledBy(customerId);
         equipmentReservations.release(bookingId);
         bookings.flush();
-        return cancellation(booking);
+        RefundResponse refund = refunds.requestOnCancellation(bookingId, customerId,
+                request.reason(), request.refundAccount());
+        return cancellation(booking, refund);
     }
 
     @Override
@@ -372,10 +387,10 @@ public class BookingServiceImpl implements BookingService {
                 equipmentHandovers.findForAuthorizedBooking(id).orElse(null));
     }
 
-    private BookingCancellationResponse cancellation(Booking booking) {
+    private BookingCancellationResponse cancellation(Booking booking, RefundResponse refund) {
         long id = booking.getId();
         return mapper.toCancellation(booking,
-                toLong(bookings.acceptedPaymentTotalVnd(id)), toLong(bookings.refundedTotalVnd(id)));
+                toLong(bookings.acceptedPaymentTotalVnd(id)), toLong(bookings.refundedTotalVnd(id)), refund);
     }
 
     private Page<BookingSummaryResponse> summaries(Page<Booking> page) {
@@ -419,10 +434,20 @@ public class BookingServiceImpl implements BookingService {
                 Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id")));
     }
 
-    private static String newBookingCode() {
-        StringBuilder code = new StringBuilder("BK");
+    /** {@code <TOURCODE>-<random>}; tours without an active code use the configured default prefix. */
+    private String newBookingCode(long tourId) {
+        String prefix = tourCodes.activeCode(tourId).orElse(defaultCodePrefix);
+        StringBuilder code = new StringBuilder(prefix).append('-');
         for (int i = 0; i < CODE_LENGTH; i++) code.append(CODE_ALPHABET.charAt(RANDOM.nextInt(CODE_ALPHABET.length())));
         return code.toString();
+    }
+
+    private static String normalizePrefix(String value) {
+        String prefix = value == null ? "" : value.trim().toUpperCase(java.util.Locale.ROOT);
+        if (!prefix.matches("[A-Z0-9]{1,20}")) {
+            throw new IllegalArgumentException("BOOKING_CODE_PREFIX must be 1-20 letters or digits");
+        }
+        return prefix;
     }
 
     private static String blankToNull(String value) {

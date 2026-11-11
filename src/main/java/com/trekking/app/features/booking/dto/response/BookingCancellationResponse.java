@@ -1,9 +1,10 @@
 package com.trekking.app.features.booking.dto.response;
 
 import com.trekking.app.features.booking.enums.BookingStatus;
+import com.trekking.app.features.payment.dto.response.RefundResponse;
 import java.time.OffsetDateTime;
 
-/** Reports money facts only; refund calculation and approval belong to Payment. */
+/** Money facts plus the refund request created by Payment (null when nothing is refundable). */
 public record BookingCancellationResponse(
         Long bookingId,
         String bookingCode,
@@ -13,5 +14,6 @@ public record BookingCancellationResponse(
         Long cancelledBy,
         long paidAmountVnd,
         long refundedAmountVnd,
-        boolean refundRequired
+        boolean refundRequired,
+        RefundResponse refund
 ) {}

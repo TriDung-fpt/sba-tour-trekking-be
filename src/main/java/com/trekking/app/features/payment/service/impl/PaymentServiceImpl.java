@@ -81,7 +81,7 @@ public class PaymentServiceImpl implements PaymentService {
             throw conflict("DEPOSIT_ALREADY_PAID", "A confirmed booking cannot accept a deposit payment");
         }
 
-        BigDecimal paid = payments.acceptedTotal(bookingId);
+        BigDecimal paid = acceptedTotal(bookingId);
         var existing = attempts.findFirstByBookingIdAndProviderAndPurposeAndStatusOrderByCreatedAtDesc(
                 bookingId, request.provider(), request.purpose(), PaymentStatus.PENDING);
         if (existing.isPresent() && existing.get().getExpiresAt() != null
@@ -172,7 +172,7 @@ public class PaymentServiceImpl implements PaymentService {
             return;
         }
 
-        BigDecimal acceptedTotal = payments.acceptedTotal(attempt.getBookingId());
+        BigDecimal acceptedTotal = acceptedTotal(attempt.getBookingId());
         boolean late = attempt.getExpiresAt() == null || !attempt.getExpiresAt().isAfter(OffsetDateTime.now(clock))
                 || booking.getStatus() == BookingStatus.EXPIRED || booking.getStatus() == BookingStatus.CANCELLED;
         boolean exceedsOutstanding = acceptedTotal.add(BigDecimal.valueOf(amount))
@@ -234,4 +234,13 @@ public class PaymentServiceImpl implements PaymentService {
         return new AuthException(HttpStatus.CONFLICT, code, message);
     }
 
+
+    /** Total money accepted for a booking (sum of accepted payments). */
+    private BigDecimal acceptedTotal(long bookingId) {
+        long total = 0;
+        for (CustomerPayment payment : payments.findAllByBookingIdAndAllocationStatus(bookingId, AllocationStatus.ACCEPTED)) {
+            total += payment.getAmountVnd();
+        }
+        return BigDecimal.valueOf(total);
+    }
 }

@@ -58,10 +58,12 @@ public interface TourMapper {
     void updateSchedule(UpdateScheduleRequest request, @MappingTarget TourSchedule schedule);
 
     @Mapping(target = "media", source = "media")
-    TourDetailResponse toDetailResponse(Tour tour, java.util.List<TourMediaResponse> media);
+    @Mapping(target = "code", source = "code")
+    TourDetailResponse toDetailResponse(Tour tour, java.util.List<TourMediaResponse> media, String code);
 
     @Mapping(target = "coverImageUrl", source = "coverImageUrl")
-    TourSummaryResponse toSummaryResponse(Tour tour, String coverImageUrl);
+    @Mapping(target = "code", source = "code")
+    TourSummaryResponse toSummaryResponse(Tour tour, String coverImageUrl, String code);
 
     TourMediaResponse toResponse(com.trekking.app.features.tour.entity.TourMedia media);
 

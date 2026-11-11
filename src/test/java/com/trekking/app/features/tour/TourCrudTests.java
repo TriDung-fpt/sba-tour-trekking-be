@@ -61,6 +61,7 @@ class TourCrudTests {
     private TourRepository tours;
     private TourMediaRepository media;
     private TourScheduleRepository schedules;
+    private com.trekking.app.features.tour.repository.TourCodeRepository tourCodes;
     private MockMvc mvc;
 
     @Test
@@ -81,13 +82,15 @@ class TourCrudTests {
         tours = mock(TourRepository.class);
         media = mock(TourMediaRepository.class);
         schedules = mock(TourScheduleRepository.class);
+        tourCodes = mock(com.trekking.app.features.tour.repository.TourCodeRepository.class);
         var service = new TourServiceImpl(tours, media, schedules, mock(com.trekking.app.features.tour.repository.TourScheduleDefaultsRepository.class), Mappers.getMapper(TourMapper.class),
                 mock(com.trekking.app.features.tour.mapper.TourActivityMapper.class),
                 mock(com.trekking.app.features.tour.repository.TourActivityRepository.class),
                 mock(com.trekking.app.features.tour.repository.TourItineraryDayRepository.class),
                 mock(com.trekking.app.features.tour.repository.TourTermRepository.class),
                 mock(com.trekking.app.features.policy.repository.PolicyVersionRepository.class),
-                java.time.Clock.systemUTC(), mock(PolicyService.class), mock(com.trekking.app.core.security.authorization.AuthorizationService.class));
+                java.time.Clock.systemUTC(), mock(PolicyService.class), mock(com.trekking.app.core.security.authorization.AuthorizationService.class),
+                tourCodes);
         var jsonConverter = new JacksonJsonHttpMessageConverter(JsonMapper.builder()
                 .addModule(new SpringDataJackson3Configuration.PageModule(null)).build());
         mvc = MockMvcBuilders.standaloneSetup(new TourController(service), new TourScheduleController(service))
@@ -176,14 +179,37 @@ class TourCrudTests {
         when(tours.findAll(any(org.springframework.data.jpa.domain.Specification.class), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(tour)));
         when(tours.findById(1L)).thenReturn(Optional.of(tour));
+        var code = new com.trekking.app.features.tour.entity.TourCode();
+        code.setTourId(1L);
+        code.setCode("TANANG01");
+        when(tourCodes.findAllByTourIdInAndDeletedAtIsNull(any())).thenReturn(List.of(code));
+        when(tourCodes.findFirstByTourIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(code));
 
         mvc.perform(get(TOURS).principal(admin()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].title").value("Ta Nang"))
+                .andExpect(jsonPath("$.content[0].code").value("TANANG01"))
                 .andExpect(jsonPath("$.content[0].description").doesNotExist());
         mvc.perform(get(TOURS + "/1").principal(admin()))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("TANANG01"))
                 .andExpect(jsonPath("$.description").value("Full tour description"));
+    }
+
+    @Test
+    void scheduleStartAndBalanceDeadlineMustBeInTheFuture() throws Exception {
+        when(tours.findLockedById(1)).thenReturn(Optional.of(new Tour()));
+        mvc.perform(post(SCHEDULES).contentType(MediaType.APPLICATION_JSON).content(SCHEDULE
+                        .replace("2027-01-10T07:00:00", "2020-01-10T07:00:00")
+                        .replace("2027-01-12T17:00:00", "2020-01-12T17:00:00")
+                        .replace("2027-01-09T17:00:00", "2020-01-09T17:00:00")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_SCHEDULE_START"));
+        mvc.perform(post(SCHEDULES).contentType(MediaType.APPLICATION_JSON).content(SCHEDULE
+                        .replace("2027-01-09T17:00:00", "2020-01-09T17:00:00")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_BALANCE_DUE_AT"));
+        verify(schedules, never()).saveAndFlush(any());
     }
 
     @Test

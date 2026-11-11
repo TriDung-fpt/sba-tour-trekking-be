@@ -3,6 +3,7 @@ package com.trekking.app.features.payment.entity;
 import com.trekking.app.core.common.entity.TimestampedEntity;
 import com.trekking.app.features.account.entity.AppAccount;
 import com.trekking.app.features.booking.entity.Booking;
+import com.trekking.app.features.payment.enums.RefundChannel;
 import com.trekking.app.features.payment.enums.RefundStatus;
 import jakarta.persistence.*;
 import java.time.OffsetDateTime;
@@ -54,6 +55,49 @@ public class RefundRequest extends TimestampedEntity {
 
     @Column(name = "decision_note", columnDefinition = "text")
     private String decisionNote;
+
+    @Column(name = "paid_amount_vnd")
+    private Long paidAmountVnd;
+
+    @Column(name = "refund_percent")
+    private Integer refundPercent;
+
+    @Column(name = "hours_before_departure")
+    private Long hoursBeforeDeparture;
+
+    @Column(name = "bank_bin", length = 20)
+    private String bankBin;
+
+    @Column(name = "bank_name", length = 120)
+    private String bankName;
+
+    @Column(name = "recipient_name_ciphertext", columnDefinition = "text")
+    private String recipientNameCiphertext;
+
+    @Column(name = "recipient_account_ciphertext", columnDefinition = "text")
+    private String recipientAccountCiphertext;
+
+    @Column(name = "recipient_account_last4", length = 4)
+    private String recipientAccountLast4;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "payout_channel", columnDefinition = "text")
+    private RefundChannel payoutChannel;
+
+    @Column(name = "payout_reference_id", length = 100)
+    private String payoutReferenceId;
+
+    @Column(name = "payout_id", length = 200)
+    private String payoutId;
+
+    @Column(name = "payout_state", length = 50)
+    private String payoutState;
+
+    @Column(name = "payout_initiated_by")
+    private Long payoutInitiatedBy;
+
+    @Column(name = "payout_last_checked_at")
+    private OffsetDateTime payoutLastCheckedAt;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "booking_id", referencedColumnName = "id", insertable = false, updatable = false)

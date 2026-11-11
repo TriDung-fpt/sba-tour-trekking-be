@@ -30,12 +30,14 @@ import com.trekking.app.features.tour.dto.response.TourDetailResponse;
 import com.trekking.app.features.tour.dto.response.TourScheduleRangeResponse;
 import com.trekking.app.features.tour.dto.response.TourSummaryResponse;
 import com.trekking.app.features.tour.entity.Tour;
+import com.trekking.app.features.tour.entity.TourCode;
 import com.trekking.app.features.tour.entity.TourSchedule;
 import com.trekking.app.features.tour.entity.TourMedia;
 import com.trekking.app.features.tour.enums.ScheduleStatus;
 import com.trekking.app.features.tour.enums.DifficultyLevel;
 import com.trekking.app.features.tour.enums.TourStatus;
 import com.trekking.app.features.tour.mapper.TourMapper;
+import com.trekking.app.features.tour.repository.TourCodeRepository;
 import com.trekking.app.features.tour.repository.TourRepository;
 import com.trekking.app.features.tour.repository.TourMediaRepository;
 import com.trekking.app.features.tour.repository.TourScheduleRepository;
@@ -73,10 +75,12 @@ public class TourServiceImpl implements TourService {
     private final Clock clock;
     private final com.trekking.app.features.policy.service.PolicyService policyService;
     private final com.trekking.app.core.security.authorization.AuthorizationService authorization;
+    private final TourCodeRepository tourCodes;
 
     public TourServiceImpl(TourRepository tours, TourMediaRepository media, TourScheduleRepository schedules, TourScheduleDefaultsRepository scheduleDefaults, TourMapper mapper, TourActivityMapper activityMapper, TourActivityRepository activities, TourItineraryDayRepository days, TourTermRepository terms, PolicyVersionRepository versions, Clock clock,
                            com.trekking.app.features.policy.service.PolicyService policyService,
-                           com.trekking.app.core.security.authorization.AuthorizationService authorization) {
+                           com.trekking.app.core.security.authorization.AuthorizationService authorization,
+                           TourCodeRepository tourCodes) {
         this.tours = tours;
         this.media = media;
         this.schedules = schedules;
@@ -90,6 +94,7 @@ public class TourServiceImpl implements TourService {
         this.clock = clock;
         this.policyService = policyService;
         this.authorization = authorization;
+        this.tourCodes = tourCodes;
     }
 
     @Override
@@ -152,7 +157,10 @@ public class TourServiceImpl implements TourService {
         var tourIds = pageOfTours.getContent().stream().map(Tour::getId).toList();
         var covers = media.findAllByTourIdInAndIsCoverTrue(tourIds).stream()
                 .collect(java.util.stream.Collectors.toMap(TourMedia::getTourId, TourMedia::getUrl));
-        return pageOfTours.map(tour -> mapper.toSummaryResponse(tour, covers.get(tour.getId())));
+        var codes = tourIds.isEmpty() ? java.util.Map.<Long, String>of()
+                : tourCodes.findAllByTourIdInAndDeletedAtIsNull(tourIds).stream()
+                        .collect(java.util.stream.Collectors.toMap(TourCode::getTourId, TourCode::getCode));
+        return pageOfTours.map(tour -> mapper.toSummaryResponse(tour, covers.get(tour.getId()), codes.get(tour.getId())));
     }
 
     @Override
@@ -202,6 +210,7 @@ public class TourServiceImpl implements TourService {
         // Serialize with tour deletion so a schedule cannot be created for a deleted tour.
         tours.findLockedById(tourId).orElseThrow(() -> notFound("Tour"));
         validateDates(request.startsAt(), request.endsAt(), request.balanceDueAt());
+        validateFutureDates(request.startsAt(), request.balanceDueAt());
         var schedule = mapper.toSchedule(request);
         schedule.setTourId(tourId);
         return mapper.toDetailResponse(schedules.saveAndFlush(schedule));
@@ -287,7 +296,11 @@ public class TourServiceImpl implements TourService {
     @Override
     public ScheduleDetailResponse updateSchedule(long tourId, long scheduleId, UpdateScheduleRequest request) {
         var schedule = editableSchedule(tourId, scheduleId);
+        if (schedule.getStartsAt() != null && !schedule.getStartsAt().isAfter(OffsetDateTime.now(clock))) {
+            throw conflict("SCHEDULE_ALREADY_STARTED", "A departure that has already started cannot be changed");
+        }
         validateDates(request.startsAt(), request.endsAt(), request.balanceDueAt());
+        validateFutureDates(request.startsAt(), request.balanceDueAt());
         mapper.updateSchedule(request, schedule);
         return mapper.toDetailResponse(schedules.saveAndFlush(schedule));
     }
@@ -431,7 +444,8 @@ public class TourServiceImpl implements TourService {
         var tourMedia = media.findAllByTourIdOrderByDisplayOrderAscIdAsc(tour.getId()).stream()
                 .map(mapper::toResponse)
                 .toList();
-        return mapper.toDetailResponse(tour, tourMedia);
+        String code = tourCodes.findFirstByTourIdAndDeletedAtIsNull(tour.getId()).map(TourCode::getCode).orElse(null);
+        return mapper.toDetailResponse(tour, tourMedia, code);
     }
 
     private TourSchedule editableSchedule(long tourId, long scheduleId) {
@@ -462,6 +476,19 @@ public class TourServiceImpl implements TourService {
         if (!fields.isEmpty()) {
             throw new TourException(HttpStatus.CONFLICT, "TOUR_CANNOT_BE_PUBLISHED",
                     "Tour must be reviewed and have a cancellation policy before publishing", fields);
+        }
+    }
+
+    /** A departure (and its balance deadline) must lie in the future when it is created or rescheduled. */
+    private void validateFutureDates(OffsetDateTime startsAt, OffsetDateTime balanceDueAt) {
+        OffsetDateTime now = OffsetDateTime.now(clock);
+        if (!startsAt.isAfter(now)) {
+            throw new TourException(HttpStatus.BAD_REQUEST, "INVALID_SCHEDULE_START", "startsAt must be in the future",
+                    Map.of("startsAt", "Must be in the future"));
+        }
+        if (balanceDueAt.isBefore(now)) {
+            throw new TourException(HttpStatus.BAD_REQUEST, "INVALID_BALANCE_DUE_AT", "balanceDueAt must not be in the past",
+                    Map.of("balanceDueAt", "Must not be in the past"));
         }
     }
 
