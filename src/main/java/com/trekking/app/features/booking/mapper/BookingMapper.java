@@ -73,6 +73,7 @@ public class BookingMapper {
                 booking.getBookingCode(),
                 booking.getStatus(),
                 booking.getCustomerId(),
+                booking.getCustomer().getFullName(),
                 schedule.getId(),
                 schedule.getTourId(),
                 schedule.getTour().getTitle(),
