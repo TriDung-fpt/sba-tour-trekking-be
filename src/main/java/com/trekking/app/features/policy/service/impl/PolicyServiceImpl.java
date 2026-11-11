@@ -9,6 +9,7 @@ import com.trekking.app.features.policy.dto.request.PolicyCreateRequest;
 import com.trekking.app.features.policy.dto.request.PolicyPublishRequest;
 import com.trekking.app.features.policy.dto.response.PolicyResponse;
 import com.trekking.app.features.policy.dto.response.PolicyVersionResponse;
+import com.trekking.app.features.policy.dto.response.PolicyVersionSummary;
 import com.trekking.app.features.policy.entity.Policy;
 import com.trekking.app.features.policy.entity.PolicyVersion;
 import com.trekking.app.features.policy.enums.PolicyKind;
@@ -17,9 +18,11 @@ import com.trekking.app.features.policy.repository.PolicyVersionRepository;
 import com.trekking.app.features.policy.service.PolicyService;
 import java.time.Clock;
 import java.time.OffsetDateTime;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
-import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -184,8 +187,10 @@ public class PolicyServiceImpl implements PolicyService {
     @Transactional(readOnly = true)
     public List<PolicyResponse> list() {
         authorization.require(Permission.POLICY_MANAGE);
+        Map<Long, PolicyVersionSummary> latestVersions = versions.findLatestSummaries().stream()
+                .collect(Collectors.toMap(PolicyVersionSummary::policyId, Function.identity()));
         return policies.findAllByOrderByIdAsc().stream().filter(p -> p.getDeletedAt() == null)
-                .map(PolicyServiceImpl::response).toList();
+                .map(policy -> response(policy, latestVersions.get(policy.getId()))).toList();
     }
 
     @Override
@@ -208,7 +213,21 @@ public class PolicyServiceImpl implements PolicyService {
     }
 
     private static PolicyResponse response(Policy policy) {
-        return new PolicyResponse(policy.getId(), policy.getCode(), policy.getTitle(), policy.getKind().getValue(), policy.getActive());
+        return response(policy, (PolicyVersionSummary) null);
+    }
+
+    private static PolicyResponse response(Policy policy, PolicyVersionSummary latestVersion) {
+        var updatedAt = policy.getUpdatedAt();
+        if (latestVersion != null && latestVersion.approvedAt() != null
+                && (updatedAt == null || latestVersion.approvedAt().isAfter(updatedAt))) {
+            updatedAt = latestVersion.approvedAt();
+        }
+        if (latestVersion != null && latestVersion.revokedAt() != null
+                && (updatedAt == null || latestVersion.revokedAt().isAfter(updatedAt))) {
+            updatedAt = latestVersion.revokedAt();
+        }
+        return new PolicyResponse(policy.getId(), policy.getCode(), policy.getTitle(), policy.getKind().getValue(),
+                policy.getActive(), latestVersion == null ? null : latestVersion.versionNumber(), updatedAt);
     }
 
     private static PolicyVersionResponse response(Policy policy, PolicyVersion version) {
