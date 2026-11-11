@@ -15,4 +15,6 @@ public interface PolicyRepository extends JpaRepository<Policy, Long> {
     List<Policy> findAllByOrderByIdAsc();
 
     boolean existsByCode(String code);
+
+    Optional<Policy> findByCode(String code);
 }

@@ -27,7 +27,7 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 @Configuration
 @EnableMethodSecurity
-@EnableConfigurationProperties(AuthProperties.class)
+@EnableConfigurationProperties({AuthProperties.class, com.trekking.app.features.policy.config.PublicPolicyProperties.class})
 public class SecurityConfig {
     @Bean Clock clock() { return Clock.systemUTC(); }
     @Bean PasswordEncoder passwordEncoder() { return new BCryptPasswordEncoder(12); }
@@ -63,6 +63,7 @@ public class SecurityConfig {
                         .requireCsrfProtectionMatcher(r -> !List.of("GET", "HEAD", "OPTIONS", "TRACE").contains(r.getMethod())
                                 && r.getRequestURI().substring(r.getContextPath().length()).startsWith("/api/v1/auth/")))
                 .authorizeHttpRequests(a -> a
+                        .requestMatchers(HttpMethod.GET, "/api/v1/public/policies/*").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/auth/csrf").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/register", "/api/v1/auth/verify-email",
                                 "/api/v1/auth/resend-verification", "/api/v1/auth/forgot-password",
