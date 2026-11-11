@@ -96,18 +96,18 @@ public class TourServiceImpl implements TourService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<TourScheduleRangeResponse> listSchedulesInRange(OffsetDateTime start, OffsetDateTime end) {
+    public Page<TourScheduleRangeResponse> listSchedulesInRange(OffsetDateTime start, OffsetDateTime end, int page, int size) {
         if (!end.isAfter(start)) throw new TourException(HttpStatus.BAD_REQUEST, "INVALID_SCHEDULE_DATES", "End must be after start");
-        var departures = schedules.findOverlappingSchedules(start, end);
-        if (departures.isEmpty()) return List.of();
-        var tourIds = departures.stream().map(TourSchedule::getTourId).distinct().toList();
-        var counts = schedules.countSchedulesByTourIds(tourIds).stream()
+        var pageable = pageRequest(page, size).withSort(Sort.by("startsAt").ascending().and(Sort.by("id").ascending()));
+        var departures = schedules.findOverlappingSchedules(start, end, pageable);
+        var tourIds = departures.getContent().stream().map(TourSchedule::getTourId).distinct().toList();
+        var counts = tourIds.isEmpty() ? Map.<Long, Long>of() : schedules.countSchedulesByTourIds(tourIds).stream()
                 .collect(java.util.stream.Collectors.toMap(TourScheduleRepository.TourScheduleCount::getTourId,
                         TourScheduleRepository.TourScheduleCount::getScheduleCount));
-        return departures.stream().map(s -> new TourScheduleRangeResponse(
+        return departures.map(s -> new TourScheduleRangeResponse(
                 s.getId(), s.getTourId(), s.getTour().getTitle(), s.getStartsAt(), s.getEndsAt(),
                 s.getStatus(), s.getTour().getStatus(), counts.getOrDefault(s.getTourId(), 0L),
-                s.getCapacity(), s.getConfirmedSeats(), s.getHeldSeats())).toList();
+                s.getCapacity(), s.getConfirmedSeats(), s.getHeldSeats()));
     }
 
     @Override

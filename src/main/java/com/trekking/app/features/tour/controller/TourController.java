@@ -83,10 +83,12 @@ public class TourController {
         return tours.saveScheduleDefaults(tourId, request);
     }
     @GetMapping("/schedules")
-    public java.util.List<com.trekking.app.features.tour.dto.response.TourScheduleRangeResponse> schedulesInRange(
+    public Page<com.trekking.app.features.tour.dto.response.TourScheduleRangeResponse> schedulesInRange(
             @RequestParam @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE_TIME) java.time.OffsetDateTime start,
-            @RequestParam @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE_TIME) java.time.OffsetDateTime end) {
-        return tours.listSchedulesInRange(start, end);
+            @RequestParam @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE_TIME) java.time.OffsetDateTime end,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return tours.listSchedulesInRange(start, end, page, size);
     }
 
     @GetMapping("/{tourId}/itinerary")

@@ -14,7 +14,7 @@ import com.trekking.app.features.tour.enums.DifficultyLevel;
 import com.trekking.app.features.tour.enums.TourStatus;
 
 public interface TourService {
-    java.util.List<com.trekking.app.features.tour.dto.response.TourScheduleRangeResponse> listSchedulesInRange(java.time.OffsetDateTime start, java.time.OffsetDateTime end);
+    Page<com.trekking.app.features.tour.dto.response.TourScheduleRangeResponse> listSchedulesInRange(java.time.OffsetDateTime start, java.time.OffsetDateTime end, int page, int size);
     java.util.List<com.trekking.app.features.tour.dto.response.ItineraryDayResponse> readItinerary(long tourId, boolean publicAccess);
     java.util.List<com.trekking.app.features.tour.dto.response.ItineraryDayResponse> saveItinerary(long tourId, com.trekking.app.features.tour.dto.request.SaveItineraryRequest request);
     java.util.List<com.trekking.app.features.tour.dto.response.TourTermResponse> readTerms(long tourId, boolean publicAccess);
