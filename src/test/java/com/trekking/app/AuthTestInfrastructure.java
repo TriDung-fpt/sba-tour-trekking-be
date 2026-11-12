@@ -14,6 +14,9 @@ public abstract class AuthTestInfrastructure {
     static final GenericContainer<?> POSTGRES = new GenericContainer<>(DockerImageName.parse("pgvector/pgvector:pg18"))
             .withEnv("POSTGRES_USER", "auth_test").withEnv("POSTGRES_PASSWORD", "auth_test")
             .withEnv("POSTGRES_DB", "auth_test").withExposedPorts(5432)
+            // Each cached Spring test context keeps its own Hikari pool; the default 100 connections
+            // is exhausted once the suite holds more contexts ("FATAL: sorry, too many clients already").
+            .withCommand("postgres", "-c", "max_connections=300")
             .waitingFor(Wait.forLogMessage(".*database system is ready to accept connections.*\\n", 2))
             .withStartupTimeout(Duration.ofMinutes(2));
     static final GenericContainer<?> REDIS = new GenericContainer<>(DockerImageName.parse("redis:8.2-alpine"))
