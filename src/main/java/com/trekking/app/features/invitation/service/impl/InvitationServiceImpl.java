@@ -96,6 +96,7 @@ public class InvitationServiceImpl implements InvitationService {
                 account.setFullName(name);
                 account.setPhone(phone);
                 account.setPasswordHash(passwords.encode(crypto.token()));
+                account.setStatus(AccountStatus.DISABLED);
                 account.setMustChangePassword(true);
                 account.setEmailVerifiedAt(null);
                 accounts.saveAndFlush(account);
@@ -171,9 +172,15 @@ public class InvitationServiceImpl implements InvitationService {
             var account = accounts.lockByEmail(request.email()).orElseThrow(InvitationServiceImpl::invalidOtp);
             Pending pending;
             try { pending = pending(account); }
-            catch (AuthException ex) { throw invalidOtp(); }
+            catch (AuthException ex) {
+                // Invalidate a matching invitation code when the account no longer matches
+                // the pending invitation state. A wrong code cannot cancel the stored code.
+                store.cancel(request.email(), otpHash(request.email(), request.otp()));
+                throw invalidOtp();
+            }
             if (!store.consume(request.email(), otpHash(request.email(), request.otp()), pending.context())) throw invalidOtp();
             account.setPasswordHash(passwords.encode(request.newPassword()));
+            account.setStatus(AccountStatus.ACTIVE);
             account.setEmailVerifiedAt(OffsetDateTime.now(clock));
             account.setMustChangePassword(false);
             account.setSessionVersion(Math.addExact(account.getSessionVersion(), 1));
@@ -183,7 +190,7 @@ public class InvitationServiceImpl implements InvitationService {
     }
 
     private Pending pending(AppAccount account) {
-        if (account.getStatus() != AccountStatus.ACTIVE || account.getEmailVerifiedAt() != null
+        if (account.getStatus() != AccountStatus.DISABLED || account.getEmailVerifiedAt() != null
                 || !Boolean.TRUE.equals(account.getMustChangePassword())) {
             throw new AuthException(HttpStatus.CONFLICT, "INVITATION_NOT_PENDING", "Account has no pending invitation");
         }

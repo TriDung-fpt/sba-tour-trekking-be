@@ -56,8 +56,16 @@ For a host JVM instead, start only the dependencies with
 .\mvnw.cmd spring-boot:run '-Dspring-boot.run.jvmArguments=-Duser.timezone=Asia/Ho_Chi_Minh'
 ```
 
-In IntelliJ, select JDK 21, the project root as the working directory, and set VM
-option `-Duser.timezone=Asia/Ho_Chi_Minh`. The Docker backend uses the same timezone.
+In IntelliJ, select the shared `TrekkingApplication Local` run configuration
+(`.run/TrekkingApplication Local.run.xml`) and JDK 21. It uses the project root
+as the working directory and sets VM option
+`-Duser.timezone=Asia/Ho_Chi_Minh`. `application.properties` imports `.env`
+from that directory, so the same `DB_*`, `REDIS_*`, mail, auth, and integration
+settings are loaded without copying secrets into the IntelliJ run configuration.
+For a local JVM, `DB_HOST` and `REDIS_HOST` must point to services reachable from
+your computer (normally `localhost`). Start PostgreSQL and Redis first; if Docker
+is available, `docker compose up -d postgres redis` starts only those dependencies.
+The Docker backend uses the same timezone.
 Open `http://localhost:8080/swagger-ui/index.html` to try the API. Set `BACKEND_PORT`
 to change its host port. Container database/Redis connections use service names
 and internal ports, independently of host port mappings in `.env`.

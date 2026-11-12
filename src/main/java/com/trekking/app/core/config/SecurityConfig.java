@@ -27,7 +27,7 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 @Configuration
 @EnableMethodSecurity
-@EnableConfigurationProperties(AuthProperties.class)
+@EnableConfigurationProperties({AuthProperties.class, com.trekking.app.features.policy.config.PublicPolicyProperties.class})
 public class SecurityConfig {
     @Bean Clock clock() { return Clock.systemUTC(); }
     @Bean PasswordEncoder passwordEncoder() { return new BCryptPasswordEncoder(12); }
@@ -63,16 +63,17 @@ public class SecurityConfig {
                         .requireCsrfProtectionMatcher(r -> !List.of("GET", "HEAD", "OPTIONS", "TRACE").contains(r.getMethod())
                                 && r.getRequestURI().substring(r.getContextPath().length()).startsWith("/api/v1/auth/")))
                 .authorizeHttpRequests(a -> a
+                        .requestMatchers(HttpMethod.GET, "/api/v1/public/policies/*").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/auth/csrf").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/register", "/api/v1/auth/verify-email",
                                 "/api/v1/auth/resend-verification", "/api/v1/auth/forgot-password",
                                 "/api/v1/auth/reset-password", "/api/v1/auth/login", "/api/v1/auth/google",
                                 "/api/v1/auth/refresh", "/api/v1/auth/logout", "/api/v1/auth/activate-account").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/payments/*/webhook").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/v1/ai/chat").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/v1/ai/chat/stream").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/v1/ai/chat/stream").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/v1/ai/ingest").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/ai/chat", "/api/v1/local-ai/chat",
+                                "/api/v1/integrate-ai/chat").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/ai/chat/stream", "/api/v1/local-ai/chat/stream").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/ai/chat/stream", "/api/v1/local-ai/chat/stream").permitAll()
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html", "/error").permitAll()
                         .anyRequest().authenticated())
                 .exceptionHandling(e -> e.authenticationEntryPoint(errors).accessDeniedHandler(errors))

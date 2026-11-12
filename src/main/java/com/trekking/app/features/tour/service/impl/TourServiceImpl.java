@@ -30,12 +30,14 @@ import com.trekking.app.features.tour.dto.response.TourDetailResponse;
 import com.trekking.app.features.tour.dto.response.TourScheduleRangeResponse;
 import com.trekking.app.features.tour.dto.response.TourSummaryResponse;
 import com.trekking.app.features.tour.entity.Tour;
+import com.trekking.app.features.tour.entity.TourCode;
 import com.trekking.app.features.tour.entity.TourSchedule;
 import com.trekking.app.features.tour.entity.TourMedia;
 import com.trekking.app.features.tour.enums.ScheduleStatus;
 import com.trekking.app.features.tour.enums.DifficultyLevel;
 import com.trekking.app.features.tour.enums.TourStatus;
 import com.trekking.app.features.tour.mapper.TourMapper;
+import com.trekking.app.features.tour.repository.TourCodeRepository;
 import com.trekking.app.features.tour.repository.TourRepository;
 import com.trekking.app.features.tour.repository.TourMediaRepository;
 import com.trekking.app.features.tour.repository.TourScheduleRepository;
@@ -45,6 +47,8 @@ import com.trekking.app.features.tour.dto.request.SaveScheduleDefaultsRequest;
 import com.trekking.app.features.tour.dto.response.ScheduleDefaultsResponse;
 import com.trekking.app.features.tour.service.TourService;
 import java.time.OffsetDateTime;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Locale;
@@ -73,10 +77,12 @@ public class TourServiceImpl implements TourService {
     private final Clock clock;
     private final com.trekking.app.features.policy.service.PolicyService policyService;
     private final com.trekking.app.core.security.authorization.AuthorizationService authorization;
+    private final TourCodeRepository tourCodes;
 
     public TourServiceImpl(TourRepository tours, TourMediaRepository media, TourScheduleRepository schedules, TourScheduleDefaultsRepository scheduleDefaults, TourMapper mapper, TourActivityMapper activityMapper, TourActivityRepository activities, TourItineraryDayRepository days, TourTermRepository terms, PolicyVersionRepository versions, Clock clock,
                            com.trekking.app.features.policy.service.PolicyService policyService,
-                           com.trekking.app.core.security.authorization.AuthorizationService authorization) {
+                           com.trekking.app.core.security.authorization.AuthorizationService authorization,
+                           TourCodeRepository tourCodes) {
         this.tours = tours;
         this.media = media;
         this.schedules = schedules;
@@ -90,22 +96,23 @@ public class TourServiceImpl implements TourService {
         this.clock = clock;
         this.policyService = policyService;
         this.authorization = authorization;
+        this.tourCodes = tourCodes;
     }
 
     @Override
     @Transactional(readOnly = true)
-    public List<TourScheduleRangeResponse> listSchedulesInRange(OffsetDateTime start, OffsetDateTime end) {
+    public Page<TourScheduleRangeResponse> listSchedulesInRange(OffsetDateTime start, OffsetDateTime end, int page, int size) {
         if (!end.isAfter(start)) throw new TourException(HttpStatus.BAD_REQUEST, "INVALID_SCHEDULE_DATES", "End must be after start");
-        var departures = schedules.findOverlappingSchedules(start, end);
-        if (departures.isEmpty()) return List.of();
-        var tourIds = departures.stream().map(TourSchedule::getTourId).distinct().toList();
-        var counts = schedules.countSchedulesByTourIds(tourIds).stream()
+        var pageable = pageRequest(page, size).withSort(Sort.by("startsAt").ascending().and(Sort.by("id").ascending()));
+        var departures = schedules.findOverlappingSchedules(start, end, pageable);
+        var tourIds = departures.getContent().stream().map(TourSchedule::getTourId).distinct().toList();
+        var counts = tourIds.isEmpty() ? Map.<Long, Long>of() : schedules.countSchedulesByTourIds(tourIds).stream()
                 .collect(java.util.stream.Collectors.toMap(TourScheduleRepository.TourScheduleCount::getTourId,
                         TourScheduleRepository.TourScheduleCount::getScheduleCount));
-        return departures.stream().map(s -> new TourScheduleRangeResponse(
+        return departures.map(s -> new TourScheduleRangeResponse(
                 s.getId(), s.getTourId(), s.getTour().getTitle(), s.getStartsAt(), s.getEndsAt(),
                 s.getStatus(), s.getTour().getStatus(), counts.getOrDefault(s.getTourId(), 0L),
-                s.getCapacity(), s.getConfirmedSeats(), s.getHeldSeats())).toList();
+                s.getCapacity(), s.getConfirmedSeats(), s.getHeldSeats()));
     }
 
     @Override
@@ -124,6 +131,18 @@ public class TourServiceImpl implements TourService {
     @Transactional(readOnly = true)
     public Page<TourSummaryResponse> list(String query, DifficultyLevel difficulty, Integer durationDays,
                                          TourStatus status, int page, int size) {
+        return list(query, difficulty, durationDays, status, null, page, size);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<TourSummaryResponse> list(String query, DifficultyLevel difficulty, Integer durationDays,
+                                         TourStatus status, LocalDate departureDate, int page, int size) {
+        return listFiltered(query, difficulty, durationDays, status, departureDate, page, size);
+    }
+
+    private Page<TourSummaryResponse> listFiltered(String query, DifficultyLevel difficulty, Integer durationDays,
+                                                   TourStatus status, LocalDate departureDate, int page, int size) {
         var pageable = pageRequest(page, size);
         if (durationDays != null && durationDays < 1) {
             throw new TourException(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", "Invalid duration",
@@ -138,6 +157,23 @@ public class TourServiceImpl implements TourService {
         if (difficulty != null) filter = filter.and((root, q, cb) -> cb.equal(root.get("difficulty"), difficulty));
         if (durationDays != null) filter = filter.and((root, q, cb) -> cb.equal(root.get("durationDays"), durationDays));
         if (status != null) filter = filter.and((root, q, cb) -> cb.equal(root.get("status"), status));
+        if (departureDate != null) {
+            var zone = ZoneId.of("Asia/Ho_Chi_Minh");
+            var dayStart = departureDate.atStartOfDay(zone).toOffsetDateTime();
+            var dayEnd = departureDate.plusDays(1).atStartOfDay(zone).toOffsetDateTime();
+            var now = OffsetDateTime.now(clock);
+            filter = filter.and((root, q, cb) -> {
+                var matchingSchedule = q.subquery(Long.class);
+                var schedule = matchingSchedule.from(TourSchedule.class);
+                matchingSchedule.select(schedule.get("tourId")).where(
+                        cb.equal(schedule.get("tourId"), root.get("id")),
+                        cb.equal(schedule.get("status"), ScheduleStatus.SCHEDULED),
+                        cb.greaterThanOrEqualTo(schedule.<OffsetDateTime>get("startsAt"), now),
+                        cb.greaterThanOrEqualTo(schedule.<OffsetDateTime>get("startsAt"), dayStart),
+                        cb.lessThan(schedule.<OffsetDateTime>get("startsAt"), dayEnd));
+                return cb.exists(matchingSchedule);
+            });
+        }
         return summaries(tours.findAll(filter, pageable));
     }
 
@@ -145,14 +181,24 @@ public class TourServiceImpl implements TourService {
     @Transactional(readOnly = true)
     public Page<TourSummaryResponse> listPublic(String query, DifficultyLevel difficulty, Integer durationDays,
                                                 int page, int size) {
-        return list(query, difficulty, durationDays, TourStatus.PUBLISHED, page, size);
+        return listPublic(query, difficulty, durationDays, null, page, size);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<TourSummaryResponse> listPublic(String query, DifficultyLevel difficulty, Integer durationDays,
+                                                LocalDate departureDate, int page, int size) {
+        return listFiltered(query, difficulty, durationDays, TourStatus.PUBLISHED, departureDate, page, size);
     }
 
     private Page<TourSummaryResponse> summaries(Page<Tour> pageOfTours) {
         var tourIds = pageOfTours.getContent().stream().map(Tour::getId).toList();
         var covers = media.findAllByTourIdInAndIsCoverTrue(tourIds).stream()
                 .collect(java.util.stream.Collectors.toMap(TourMedia::getTourId, TourMedia::getUrl));
-        return pageOfTours.map(tour -> mapper.toSummaryResponse(tour, covers.get(tour.getId())));
+        var codes = tourIds.isEmpty() ? java.util.Map.<Long, String>of()
+                : tourCodes.findAllByTourIdInAndDeletedAtIsNull(tourIds).stream()
+                        .collect(java.util.stream.Collectors.toMap(TourCode::getTourId, TourCode::getCode));
+        return pageOfTours.map(tour -> mapper.toSummaryResponse(tour, covers.get(tour.getId()), codes.get(tour.getId())));
     }
 
     @Override
@@ -202,6 +248,7 @@ public class TourServiceImpl implements TourService {
         // Serialize with tour deletion so a schedule cannot be created for a deleted tour.
         tours.findLockedById(tourId).orElseThrow(() -> notFound("Tour"));
         validateDates(request.startsAt(), request.endsAt(), request.balanceDueAt());
+        validateFutureDates(request.startsAt(), request.balanceDueAt());
         var schedule = mapper.toSchedule(request);
         schedule.setTourId(tourId);
         return mapper.toDetailResponse(schedules.saveAndFlush(schedule));
@@ -287,7 +334,11 @@ public class TourServiceImpl implements TourService {
     @Override
     public ScheduleDetailResponse updateSchedule(long tourId, long scheduleId, UpdateScheduleRequest request) {
         var schedule = editableSchedule(tourId, scheduleId);
+        if (schedule.getStartsAt() != null && !schedule.getStartsAt().isAfter(OffsetDateTime.now(clock))) {
+            throw conflict("SCHEDULE_ALREADY_STARTED", "A departure that has already started cannot be changed");
+        }
         validateDates(request.startsAt(), request.endsAt(), request.balanceDueAt());
+        validateFutureDates(request.startsAt(), request.balanceDueAt());
         mapper.updateSchedule(request, schedule);
         return mapper.toDetailResponse(schedules.saveAndFlush(schedule));
     }
@@ -431,7 +482,8 @@ public class TourServiceImpl implements TourService {
         var tourMedia = media.findAllByTourIdOrderByDisplayOrderAscIdAsc(tour.getId()).stream()
                 .map(mapper::toResponse)
                 .toList();
-        return mapper.toDetailResponse(tour, tourMedia);
+        String code = tourCodes.findFirstByTourIdAndDeletedAtIsNull(tour.getId()).map(TourCode::getCode).orElse(null);
+        return mapper.toDetailResponse(tour, tourMedia, code);
     }
 
     private TourSchedule editableSchedule(long tourId, long scheduleId) {
@@ -462,6 +514,19 @@ public class TourServiceImpl implements TourService {
         if (!fields.isEmpty()) {
             throw new TourException(HttpStatus.CONFLICT, "TOUR_CANNOT_BE_PUBLISHED",
                     "Tour must be reviewed and have a cancellation policy before publishing", fields);
+        }
+    }
+
+    /** A departure (and its balance deadline) must lie in the future when it is created or rescheduled. */
+    private void validateFutureDates(OffsetDateTime startsAt, OffsetDateTime balanceDueAt) {
+        OffsetDateTime now = OffsetDateTime.now(clock);
+        if (!startsAt.isAfter(now)) {
+            throw new TourException(HttpStatus.BAD_REQUEST, "INVALID_SCHEDULE_START", "startsAt must be in the future",
+                    Map.of("startsAt", "Must be in the future"));
+        }
+        if (balanceDueAt.isBefore(now)) {
+            throw new TourException(HttpStatus.BAD_REQUEST, "INVALID_BALANCE_DUE_AT", "balanceDueAt must not be in the past",
+                    Map.of("balanceDueAt", "Must not be in the past"));
         }
     }
 

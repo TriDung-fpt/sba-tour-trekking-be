@@ -8,6 +8,8 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 @Getter
 @Setter
@@ -30,6 +32,10 @@ public class PolicyVersion extends TimestampedEntity {
 
     @Column(name = "content", nullable = false, columnDefinition = "text")
     private String content;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "refund_tiers", columnDefinition = "jsonb")
+    private String refundTiers;
 
     @Column(name = "effective_from", nullable = false)
     private OffsetDateTime effectiveFrom;

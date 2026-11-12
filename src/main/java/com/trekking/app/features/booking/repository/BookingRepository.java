@@ -67,6 +67,11 @@ public interface BookingRepository extends JpaRepository<Booking, Long>, JpaSpec
                         @Param("status") BookingStatus status,
                         @Param("now") OffsetDateTime now, Pageable pageable);
 
+        /*
+         * The two advisory locks below stay native on purpose: pg_advisory_xact_lock is a PostgreSQL
+         * function with no JPA equivalent, and a row lock cannot protect a booking that does not exist yet.
+         */
+
         /**
          * Serializes concurrent creates that share one idempotency key, even across
          * schedules.
@@ -78,36 +83,33 @@ public interface BookingRepository extends JpaRepository<Booking, Long>, JpaSpec
         @Query(value = "select 1 from (select pg_advisory_xact_lock(hashtextextended(concat('booking-customer:', :customerId), 0))) as advisory", nativeQuery = true)
         Integer lockCustomerBookingCreation(@Param("customerId") long customerId);
 
-        @Query(value = """
-                        select coalesce(sum(amount_vnd), 0)
-                        from trekking.customer_payments
-                        where booking_id = :bookingId and allocation_status = 'accepted'
-                        """, nativeQuery = true)
+        @Query("""
+                        select coalesce(sum(p.amountVnd), 0) from CustomerPayment p
+                        where p.bookingId = :bookingId
+                          and p.allocationStatus = com.trekking.app.features.payment.enums.AllocationStatus.ACCEPTED
+                        """)
         BigDecimal acceptedPaymentTotalVnd(@Param("bookingId") long bookingId);
 
-        @Query(value = """
-                        select coalesce(sum(amount_vnd), 0)
-                        from trekking.customer_refunds
-                        where booking_id = :bookingId
-                        """, nativeQuery = true)
+        @Query("select coalesce(sum(r.amountVnd), 0) from CustomerRefund r where r.bookingId = :bookingId")
         BigDecimal refundedTotalVnd(@Param("bookingId") long bookingId);
 
         /**
          * Actual accepted receipts and actual refunds; attempts and pending reviews are
          * excluded.
          */
-        @Query(value = """
+        @Query("""
                         select b.id as bookingId,
-                               cast(coalesce((select sum(p.amount_vnd) from trekking.customer_payments p
-                                    where p.booking_id = b.id and p.allocation_status = 'accepted'), 0) as bigint) as paidVnd,
-                               cast(coalesce((select sum(r.amount_vnd) from trekking.customer_refunds r
-                                    where r.booking_id = b.id), 0) as bigint) as refundedVnd
-                        from trekking.bookings b
-                        where b.id in (:bookingIds)
-                        """, nativeQuery = true)
+                               coalesce((select sum(p.amountVnd) from CustomerPayment p
+                                    where p.bookingId = b.id
+                                      and p.allocationStatus = com.trekking.app.features.payment.enums.AllocationStatus.ACCEPTED), 0) as paidVnd,
+                               coalesce((select sum(r.amountVnd) from CustomerRefund r
+                                    where r.bookingId = b.id), 0) as refundedVnd
+                        from Booking b
+                        where b.id in :bookingIds
+                        """)
         List<MoneyTotalsView> moneyTotals(@Param("bookingIds") Collection<Long> bookingIds);
 
-        @Query(value = "select exists(select 1 from trekking.reviews where booking_id = :bookingId)", nativeQuery = true)
+        @Query("select count(r) > 0 from Review r where r.bookingId = :bookingId")
         boolean hasReview(@Param("bookingId") long bookingId);
 
         interface MoneyTotalsView {

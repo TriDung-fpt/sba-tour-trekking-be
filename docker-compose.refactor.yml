@@ -1,0 +1,6 @@
+services:
+  backend:
+    build: .
+    environment:
+      DB_NAME: trekking_refactor
+      AUTH_REDIS_PREFIX: "wetrek:refactor:auth:"

@@ -15,8 +15,11 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface TourScheduleRepository extends JpaRepository<TourSchedule, Long> {
-    @Query("select s from TourSchedule s join fetch s.tour t where s.startsAt < :end and s.endsAt >= :start and t.status <> com.trekking.app.features.tour.enums.TourStatus.ARCHIVED order by s.startsAt, s.id")
-    List<TourSchedule> findOverlappingSchedules(@Param("start") OffsetDateTime start, @Param("end") OffsetDateTime end);
+    @Query(value = "select s from TourSchedule s join fetch s.tour t where s.startsAt < :end and s.endsAt >= :start and t.status <> com.trekking.app.features.tour.enums.TourStatus.ARCHIVED",
+            countQuery = "select count(s) from TourSchedule s join s.tour t where s.startsAt < :end and s.endsAt >= :start and t.status <> com.trekking.app.features.tour.enums.TourStatus.ARCHIVED")
+    Page<TourSchedule> findOverlappingSchedules(@Param("start") OffsetDateTime start,
+                                                @Param("end") OffsetDateTime end,
+                                                Pageable pageable);
     @Query("select s.tourId as tourId, count(s) as scheduleCount from TourSchedule s where s.tourId in :tourIds group by s.tourId")
     List<TourScheduleCount> countSchedulesByTourIds(@Param("tourIds") Collection<Long> tourIds);
     interface TourScheduleCount {

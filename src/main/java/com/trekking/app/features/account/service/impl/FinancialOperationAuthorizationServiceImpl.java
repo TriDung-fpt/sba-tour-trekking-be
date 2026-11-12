@@ -60,7 +60,7 @@ public class FinancialOperationAuthorizationServiceImpl implements FinancialOper
     }
 
     private RefundRequest refund(long refundId) {
-        var refund = refunds.findForUpdate(refundId).orElseThrow(
+        var refund = refunds.findForUpdateById(refundId).orElseThrow(
                 FinancialOperationAuthorizationServiceImpl::notFound);
         entities.refresh(refund, LockModeType.PESSIMISTIC_WRITE);
         return refund;

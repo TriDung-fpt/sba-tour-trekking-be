@@ -7,8 +7,10 @@ import com.trekking.app.features.account.entity.AuditLog;
 import com.trekking.app.features.account.repository.AuditLogRepository;
 import com.trekking.app.features.policy.dto.request.PolicyCreateRequest;
 import com.trekking.app.features.policy.dto.request.PolicyPublishRequest;
+import com.trekking.app.features.policy.dto.request.RefundTierRequest;
 import com.trekking.app.features.policy.dto.response.PolicyResponse;
 import com.trekking.app.features.policy.dto.response.PolicyVersionResponse;
+import com.trekking.app.features.policy.dto.response.PolicyVersionSummary;
 import com.trekking.app.features.policy.entity.Policy;
 import com.trekking.app.features.policy.entity.PolicyVersion;
 import com.trekking.app.features.policy.enums.PolicyKind;
@@ -17,9 +19,13 @@ import com.trekking.app.features.policy.repository.PolicyVersionRepository;
 import com.trekking.app.features.policy.service.PolicyService;
 import java.time.Clock;
 import java.time.OffsetDateTime;
-import java.time.temporal.ChronoUnit;
-import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import java.time.temporal.ChronoUnit;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Optional;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -169,8 +175,15 @@ public class PolicyServiceImpl implements PolicyService {
         }
         var version = new PolicyVersion();
         version.setPolicyId(policyId);
-        version.setVersionNumber(versions.lastVersionNumber(policyId) + 1);
+        // Next version = latest version number + 1 (or 1 for the first version).
+        int nextVersionNumber = 1;
+        Optional<PolicyVersion> latestVersion = versions.findFirstByPolicyIdOrderByVersionNumberDesc(policyId);
+        if (latestVersion.isPresent()) {
+            nextVersionNumber = latestVersion.get().getVersionNumber() + 1;
+        }
+        version.setVersionNumber(nextVersionNumber);
         version.setContent(request.content());
+        version.setRefundTiers(refundTiers(policy, request));
         version.setEffectiveFrom(effectiveFrom);
         version.setApprovedBy(authorization.currentAccountId());
         version.setApprovedAt(OffsetDateTime.now(clock));
@@ -184,8 +197,10 @@ public class PolicyServiceImpl implements PolicyService {
     @Transactional(readOnly = true)
     public List<PolicyResponse> list() {
         authorization.require(Permission.POLICY_MANAGE);
+        Map<Long, PolicyVersionSummary> latestVersions = versions.findLatestSummaries().stream()
+                .collect(Collectors.toMap(PolicyVersionSummary::policyId, Function.identity()));
         return policies.findAllByOrderByIdAsc().stream().filter(p -> p.getDeletedAt() == null)
-                .map(PolicyServiceImpl::response).toList();
+                .map(policy -> response(policy, latestVersions.get(policy.getId()))).toList();
     }
 
     @Override
@@ -208,14 +223,55 @@ public class PolicyServiceImpl implements PolicyService {
     }
 
     private static PolicyResponse response(Policy policy) {
-        return new PolicyResponse(policy.getId(), policy.getCode(), policy.getTitle(), policy.getKind().getValue(), policy.getActive());
+        return response(policy, (PolicyVersionSummary) null);
     }
 
-    private static PolicyVersionResponse response(Policy policy, PolicyVersion version) {
+    private static PolicyResponse response(Policy policy, PolicyVersionSummary latestVersion) {
+        var updatedAt = policy.getUpdatedAt();
+        if (latestVersion != null && latestVersion.approvedAt() != null
+                && (updatedAt == null || latestVersion.approvedAt().isAfter(updatedAt))) {
+            updatedAt = latestVersion.approvedAt();
+        }
+        if (latestVersion != null && latestVersion.revokedAt() != null
+                && (updatedAt == null || latestVersion.revokedAt().isAfter(updatedAt))) {
+            updatedAt = latestVersion.revokedAt();
+        }
+        return new PolicyResponse(policy.getId(), policy.getCode(), policy.getTitle(), policy.getKind().getValue(),
+                policy.getActive(), latestVersion == null ? null : latestVersion.versionNumber(), updatedAt);
+    }
+
+    private PolicyVersionResponse response(Policy policy, PolicyVersion version) {
         return new PolicyVersionResponse(version.getId(), policy.getId(), policy.getCode(), policy.getTitle(),
                 version.getVersionNumber(), version.getContent(), version.getEffectiveFrom(), version.getApprovedBy(), version.getApprovedAt(),
                 version.getRevocation() == null ? null : version.getRevocation().getRevokedAt(),
-                version.getRevocation() == null ? null : version.getRevocation().getReason(), policy.getKind().getValue());
+                version.getRevocation() == null ? null : version.getRevocation().getReason(), policy.getKind().getValue(),
+                version.getRefundTiers() == null ? null
+                        : List.of(json.readValue(version.getRefundTiers(), RefundTierRequest[].class)));
+    }
+
+    /** Validates and serializes tiers sorted by the strictest (largest) notice period first. */
+    private String refundTiers(Policy policy, PolicyPublishRequest request) {
+        var tiers = request.refundTiers();
+        if (tiers == null || tiers.isEmpty()) return null;
+        if (policy.getKind() != PolicyKind.CANCELLATION) {
+            throw new AuthException(HttpStatus.BAD_REQUEST, "REFUND_TIERS_NOT_ALLOWED",
+                    "Refund tiers are only allowed on cancellation policies");
+        }
+        var sorted = tiers.stream()
+                .sorted(Comparator.comparing(RefundTierRequest::minHoursBeforeDeparture).reversed()).toList();
+        for (int i = 1; i < sorted.size(); i++) {
+            var stricter = sorted.get(i - 1);
+            var looser = sorted.get(i);
+            if (stricter.minHoursBeforeDeparture().equals(looser.minHoursBeforeDeparture())) {
+                throw new AuthException(HttpStatus.BAD_REQUEST, "REFUND_TIERS_INVALID",
+                        "Refund tiers must use distinct hour thresholds");
+            }
+            if (stricter.refundPercent() < looser.refundPercent()) {
+                throw new AuthException(HttpStatus.BAD_REQUEST, "REFUND_TIERS_INVALID",
+                        "Cancelling earlier must never refund less than cancelling later");
+            }
+        }
+        return json.writeValueAsString(sorted);
     }
 
     private void audit(long id, String action, Map<String, Object> details) {
