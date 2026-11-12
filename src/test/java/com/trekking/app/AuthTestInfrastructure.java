@@ -43,5 +43,6 @@ public abstract class AuthTestInfrastructure {
         registry.add("app.auth.redis-prefix", () -> "auth-test:");
         registry.add("app.auth.mail-from", () -> "test@example.invalid");
         registry.add("app.auth.google.client-ids", () -> "");
+        registry.add("app.payment.refund-encryption-key", () -> "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=");
     }
 }

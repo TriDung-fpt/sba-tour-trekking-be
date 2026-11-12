@@ -57,6 +57,21 @@ public class CustomerPayment extends TimestampedEntity {
     @Column(name = "evidence_url", columnDefinition = "text")
     private String evidenceUrl;
 
+    @Column(name = "payer_bank_bin", length = 20)
+    private String payerBankBin;
+
+    @Column(name = "payer_bank_name", length = 120)
+    private String payerBankName;
+
+    @Column(name = "payer_account_ciphertext", columnDefinition = "text")
+    private String payerAccountCiphertext;
+
+    @Column(name = "payer_name_ciphertext", columnDefinition = "text")
+    private String payerNameCiphertext;
+
+    @Column(name = "payer_account_last4", length = 4)
+    private String payerAccountLast4;
+
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "booking_id", referencedColumnName = "id", insertable = false, updatable = false)
     @Setter(AccessLevel.NONE)

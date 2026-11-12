@@ -73,6 +73,7 @@ public class BookingMapper {
                 booking.getBookingCode(),
                 booking.getStatus(),
                 booking.getCustomerId(),
+                booking.getCustomer().getFullName(),
                 schedule.getId(),
                 schedule.getTourId(),
                 schedule.getTour().getTitle(),
@@ -85,7 +86,8 @@ public class BookingMapper {
                 booking.getCreatedAt());
     }
 
-    public BookingCancellationResponse toCancellation(Booking booking, long paidVnd, long refundedVnd) {
+    public BookingCancellationResponse toCancellation(Booking booking, long paidVnd, long refundedVnd,
+                                                      com.trekking.app.features.payment.dto.response.RefundResponse refund) {
         return new BookingCancellationResponse(
                 booking.getId(),
                 booking.getBookingCode(),
@@ -95,7 +97,8 @@ public class BookingMapper {
                 booking.getCancelledBy(),
                 paidVnd,
                 refundedVnd,
-                paidVnd > refundedVnd);
+                refund != null && !"rejected".equals(refund.status()) && !"completed".equals(refund.status()),
+                refund);
     }
 
     public ScheduleAvailabilityResponse toAvailability(TourSchedule schedule, boolean bookable) {
@@ -153,6 +156,12 @@ public class BookingMapper {
         }
         if (paidVnd <= 0) return BookingPaymentState.UNPAID;
         return paidVnd >= totalVnd ? BookingPaymentState.FULLY_PAID : BookingPaymentState.DEPOSIT_PAID;
+    }
+
+    /** Request hash stored in the equipment snapshot; parsed, because PostgreSQL re-formats jsonb text. */
+    public String requestHash(String equipmentSnapshot) {
+        Object hash = readJson(equipmentSnapshot).get("requestHash");
+        return hash == null ? null : hash.toString();
     }
 
     private Map<String, Object> readJson(String value) {

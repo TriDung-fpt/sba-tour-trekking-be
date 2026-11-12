@@ -9,6 +9,7 @@ public record BookingSummaryResponse(
         String bookingCode,
         BookingStatus status,
         Long customerId,
+        String customerName,
         Long scheduleId,
         Long tourId,
         String tourTitle,

@@ -89,7 +89,23 @@ public class PayOsGateway implements PaymentGateway {
                 + escape(orderCode) + "\",\"amount\":" + amount + ",\"reference\":\""
                 + escape(reference == null ? "" : reference) + "\",\"code\":\""
                 + escape(text(data, "code")) + "\"}}";
-        return new WebhookEvent(eventKey, orderCode, amount, successful, safePayload);
+        // safePayload deliberately excludes the payer account; it is stored encrypted on the payment instead.
+        return new WebhookEvent(eventKey, orderCode, amount, successful, safePayload, payer(data));
+    }
+
+    /** Reads the signed counterAccount* fields; returns null unless BIN and account number are well-formed. */
+    private static PayerAccount payer(JsonNode data) {
+        String bin = trimToNull(text(data, "counterAccountBankId"));
+        String number = trimToNull(text(data, "counterAccountNumber"));
+        if (bin == null || number == null || !bin.matches("[0-9]{6,8}") || !number.matches("[0-9]{6,19}")) {
+            return null;
+        }
+        return new PayerAccount(bin, trimToNull(text(data, "counterAccountBankName")), number,
+                trimToNull(text(data, "counterAccountName")));
+    }
+
+    private static String trimToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 
     private boolean verifySignature(String signature, String canonicalData) {

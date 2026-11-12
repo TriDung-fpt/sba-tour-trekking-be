@@ -46,11 +46,13 @@ public class PaymentServiceImpl implements PaymentService {
     private final EquipmentReservationService equipmentReservations;
     private final BookingPaymentService bookingPayments;
     private final Clock clock;
+    private final RefundDataCrypto crypto;
 
     public PaymentServiceImpl(PaymentAttemptRepository attempts, CustomerPaymentRepository payments,
                               PaymentNoticeRepository notices, BusinessAuthorizationService businessAuthorization,
                               EntityManager entities, List<PaymentGateway> gateways, EquipmentReservationService equipmentReservations,
-                              BookingPaymentService bookingPayments, Clock clock) {
+                              BookingPaymentService bookingPayments, Clock clock, RefundDataCrypto crypto) {
+        this.crypto = crypto;
         this.attempts = attempts;
         this.payments = payments;
         this.notices = notices;
@@ -81,7 +83,7 @@ public class PaymentServiceImpl implements PaymentService {
             throw conflict("DEPOSIT_ALREADY_PAID", "A confirmed booking cannot accept a deposit payment");
         }
 
-        BigDecimal paid = payments.acceptedTotal(bookingId);
+        BigDecimal paid = acceptedTotal(bookingId);
         var existing = attempts.findFirstByBookingIdAndProviderAndPurposeAndStatusOrderByCreatedAtDesc(
                 bookingId, request.provider(), request.purpose(), PaymentStatus.PENDING);
         if (existing.isPresent() && existing.get().getExpiresAt() != null
@@ -172,7 +174,7 @@ public class PaymentServiceImpl implements PaymentService {
             return;
         }
 
-        BigDecimal acceptedTotal = payments.acceptedTotal(attempt.getBookingId());
+        BigDecimal acceptedTotal = acceptedTotal(attempt.getBookingId());
         boolean late = attempt.getExpiresAt() == null || !attempt.getExpiresAt().isAfter(OffsetDateTime.now(clock))
                 || booking.getStatus() == BookingStatus.EXPIRED || booking.getStatus() == BookingStatus.CANCELLED;
         boolean exceedsOutstanding = acceptedTotal.add(BigDecimal.valueOf(amount))
@@ -187,6 +189,7 @@ public class PaymentServiceImpl implements PaymentService {
         payment.setGatewayFeeVnd(0L);
         payment.setAllocationStatus(late || exceedsOutstanding ? AllocationStatus.PENDING_REVIEW : AllocationStatus.ACCEPTED);
         payment.setReceivedAt(OffsetDateTime.now(clock));
+        recordPayer(payment, event.payer());
         payments.save(payment);
         attempt.setStatus(PaymentStatus.SUCCEEDED);
         attempts.save(attempt);
@@ -199,6 +202,21 @@ public class PaymentServiceImpl implements PaymentService {
         else if (exceedsOutstanding) notice.setProcessingError("Payment exceeds the remaining booking amount; manual review required");
         notice.setProcessedAt(OffsetDateTime.now(clock));
         notices.save(notice);
+    }
+
+    /**
+     * Stores the signed source account so a later refund can be locked to it. When the refund key is not
+     * configured the payment is still recorded; the refund then falls back to a customer-entered account.
+     */
+    private void recordPayer(CustomerPayment payment, PaymentGateway.PayerAccount payer) {
+        if (payer == null || !crypto.isConfigured()) return;
+        String number = payer.accountNumber();
+        payment.setPayerBankBin(payer.bankBin());
+        payment.setPayerBankName(payer.bankName());
+        payment.setPayerAccountCiphertext(crypto.encrypt(number, RefundDataCrypto.PAYER_ACCOUNT_FIELD));
+        payment.setPayerNameCiphertext(payer.accountName() == null ? null
+                : crypto.encrypt(payer.accountName(), RefundDataCrypto.PAYER_NAME_FIELD));
+        payment.setPayerAccountLast4(number.substring(number.length() - 4));
     }
 
     private long amountFor(Booking booking, BigDecimal paid, PaymentPurpose purpose) {
@@ -234,4 +252,13 @@ public class PaymentServiceImpl implements PaymentService {
         return new AuthException(HttpStatus.CONFLICT, code, message);
     }
 
+
+    /** Total money accepted for a booking (sum of accepted payments). */
+    private BigDecimal acceptedTotal(long bookingId) {
+        long total = 0;
+        for (CustomerPayment payment : payments.findAllByBookingIdAndAllocationStatus(bookingId, AllocationStatus.ACCEPTED)) {
+            total += payment.getAmountVnd();
+        }
+        return BigDecimal.valueOf(total);
+    }
 }

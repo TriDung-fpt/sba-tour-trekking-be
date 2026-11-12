@@ -120,8 +120,8 @@ class RepositoryCompatibilityIntegrationTests extends AccountAuthorizationTestSu
                 """, Long.class, bookingId, customer);
         try (var executor = Executors.newSingleThreadExecutor()) {
             new TransactionTemplate(transactionManager).executeWithoutResult(ignored -> {
-                assertThat(refunds.findForUpdate(999999)).isEmpty();
-                assertThat(refunds.findForUpdate(refundId)).isPresent();
+                assertThat(refunds.findForUpdateById(999999)).isEmpty();
+                assertThat(refunds.findForUpdateById(refundId)).isPresent();
                 try {
                     String state = executor.submit(() -> {
                         try (var connection = jdbc.getDataSource().getConnection();

@@ -15,6 +15,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.format.annotation.DateTimeFormat;
+import java.time.LocalDate;
 
 @RestController
 @RequestMapping("/api/v1/tours")
@@ -38,15 +40,16 @@ public class TourController {
                                           @RequestParam(required = false) String query,
                                           @RequestParam(required = false) DifficultyLevel difficulty,
                                           @RequestParam(required = false) Integer durationDays,
+                                          @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate departureDate,
                                           @RequestParam(required = false) TourStatus status,
                                           Authentication authentication) {
         if (TourReadAccess.isPublic(authentication)) {
-            return tours.listPublic(query, difficulty, durationDays, page, size);
+            return tours.listPublic(query, difficulty, durationDays, departureDate, page, size);
         }
-        if (query == null && difficulty == null && durationDays == null && status == null) {
+        if (query == null && difficulty == null && durationDays == null && departureDate == null && status == null) {
             return tours.list(page, size);
         }
-        return tours.list(query, difficulty, durationDays, status, page, size);
+        return tours.list(query, difficulty, durationDays, status, departureDate, page, size);
     }
 
     @GetMapping("/{tourId}")
@@ -80,10 +83,12 @@ public class TourController {
         return tours.saveScheduleDefaults(tourId, request);
     }
     @GetMapping("/schedules")
-    public java.util.List<com.trekking.app.features.tour.dto.response.TourScheduleRangeResponse> schedulesInRange(
+    public Page<com.trekking.app.features.tour.dto.response.TourScheduleRangeResponse> schedulesInRange(
             @RequestParam @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE_TIME) java.time.OffsetDateTime start,
-            @RequestParam @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE_TIME) java.time.OffsetDateTime end) {
-        return tours.listSchedulesInRange(start, end);
+            @RequestParam @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE_TIME) java.time.OffsetDateTime end,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return tours.listSchedulesInRange(start, end, page, size);
     }
 
     @GetMapping("/{tourId}/itinerary")

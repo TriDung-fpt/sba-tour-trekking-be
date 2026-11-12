@@ -12,6 +12,10 @@ public interface PaymentGateway {
 
     WebhookEvent verifyAndParseWebhook(JsonNode request);
 
+    /** {@code payer} is the signed source account of the transfer, or null when the provider did not report it. */
     record WebhookEvent(String eventKey, String merchantReference, long amountVnd,
-                        boolean successful, String safePayload) {}
+                        boolean successful, String safePayload, PayerAccount payer) {}
+
+    /** Bank account the customer paid from. {@code accountName} may be null for banks that omit it. */
+    record PayerAccount(String bankBin, String bankName, String accountNumber, String accountName) {}
 }

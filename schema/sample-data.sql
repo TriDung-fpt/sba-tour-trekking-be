@@ -813,7 +813,7 @@ SELECT pg_catalog.setval('trekking.tour_questions_id_seq', 1, false);
 -- Name: tour_schedules_id_seq; Type: SEQUENCE SET; Schema: trekking; Owner: -
 --
 
-SELECT pg_catalog.setval('trekking.tour_schedules_id_seq', 1, false);
+SELECT pg_catalog.setval('trekking.tour_schedules_id_seq', 15, true);
 
 
 --
